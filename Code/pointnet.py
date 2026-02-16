@@ -196,6 +196,7 @@ class PointNetFull(nn.Module):
     def __init__(self, classes=40):
         super().__init__()
         self.input_transform = Tnet(k=3)
+        self.feature_transform = Tnet(k=64)
 
         self.conv1 = nn.Conv1d(3, 64, 1)
         self.bn1 = nn.BatchNorm1d(64)
@@ -222,6 +223,10 @@ class PointNetFull(nn.Module):
 
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
+
+        m64x64 = self.feature_transform(x)
+        x = torch.bmm(m64x64, x)
+
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
         x = F.relu(self.bn5(self.conv5(x)))
@@ -232,21 +237,27 @@ class PointNetFull(nn.Module):
         x = self.dropout(x)
         x = self.fc3(x)
         x = self.log_softmax(x)
-        return x, m3x3
+        return x, m3x3, m64x64
 def basic_loss(outputs, labels):
     criterion = torch.nn.NLLLoss()
     bsize = outputs.size(0)
     return criterion(outputs, labels)
 
 
-def pointnet_full_loss(outputs, labels, m3x3, alpha=0.001):
+def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001):
     criterion = torch.nn.NLLLoss()
     bsize = outputs.size(0)
-    id3x3 = torch.eye(3, requires_grad=True).repeat(bsize, 1, 1)
-    if outputs.is_cuda:
-        id3x3 = id3x3.cuda()
+
+    id3x3 = torch.eye(3, device=outputs.device).repeat(bsize, 1, 1)
     diff3x3 = id3x3 - torch.bmm(m3x3, m3x3.transpose(1, 2))
-    return criterion(outputs, labels) + alpha * (torch.norm(diff3x3)) / float(bsize)
+    reg = torch.norm(diff3x3) / float(bsize)
+
+    if m64x64 is not None:
+        id64x64 = torch.eye(64, device=outputs.device).repeat(bsize, 1, 1)
+        diff64x64 = id64x64 - torch.bmm(m64x64, m64x64.transpose(1, 2))
+        reg = reg + torch.norm(diff64x64) / float(bsize)
+
+    return criterion(outputs, labels) + alpha * reg
 
 
 def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0):
@@ -276,8 +287,12 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
             optimizer.zero_grad()
             model_out = model(inputs.transpose(1, 2))
             if isinstance(model_out, tuple):
-                outputs, m3x3 = model_out
-                loss = pointnet_full_loss(outputs, labels, m3x3)
+                if len(model_out) == 3:
+                    outputs, m3x3, m64x64 = model_out
+                else:
+                    outputs, m3x3 = model_out
+                    m64x64 = None
+                loss = pointnet_full_loss(outputs, labels, m3x3, m64x64)
             else:
                 outputs = model_out
                 loss = basic_loss(outputs, labels)
@@ -306,8 +321,12 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
                     inputs, labels = data['pointcloud'].to(device).float(), data['category'].to(device)
                     model_out = model(inputs.transpose(1, 2))
                     if isinstance(model_out, tuple):
-                        outputs, m3x3 = model_out
-                        loss = pointnet_full_loss(outputs, labels, m3x3)
+                        if len(model_out) == 3:
+                            outputs, m3x3, m64x64 = model_out
+                        else:
+                            outputs, m3x3 = model_out
+                            m64x64 = None
+                        loss = pointnet_full_loss(outputs, labels, m3x3, m64x64)
                     else:
                         outputs = model_out
                         loss = basic_loss(outputs, labels)
@@ -383,8 +402,10 @@ def plot_training_history(history, save_path=None):
 
 if __name__ == '__main__':
     t0 = time.time()
-    train_ds = PointCloudData("/home/gana/Downloads/paul_chechin/data/ModelNet40_PLY")
-    test_ds = PointCloudData("/home/gana/Downloads/paul_chechin/data/ModelNet40_PLY",
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    data_root = os.path.join(project_root, "data", "ModelNet40_PLY")
+    train_ds = PointCloudData(data_root)
+    test_ds = PointCloudData(data_root,
                              folder='test',
                              transform=transforms.Compose([ToTensor()]))
 
