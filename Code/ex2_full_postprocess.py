@@ -26,7 +26,7 @@ def evaluate_model(model, loader, device, use_full=False):
 
             out = model(x.transpose(1, 2))
             if isinstance(out, tuple):
-                logits, m3x3 = out
+                logits = out[0]
                 # keep same loss style as report comparison (NLL only)
                 loss_sum += float(nll(logits, y))
             else:
@@ -116,7 +116,7 @@ def plot_architecture_full(save_path):
 
 
 def main():
-    root = '/home/gana/Downloads/paul_chechin'
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     data_root = os.path.join(root, 'data', 'ModelNet40_PLY')
     fig_dir = os.path.join(root, 'figures')
     os.makedirs(fig_dir, exist_ok=True)

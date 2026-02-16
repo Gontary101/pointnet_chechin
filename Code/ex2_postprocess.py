@@ -111,7 +111,7 @@ def plot_architecture(save_path):
 
 
 def main():
-    root = '/home/gana/Downloads/paul_chechin'
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     data_root = os.path.join(root, 'data', 'ModelNet40_PLY')
     fig_dir = os.path.join(root, 'figures')
     os.makedirs(fig_dir, exist_ok=True)
