@@ -8,7 +8,7 @@ from matplotlib.patches import FancyBboxPatch
 from torchvision import transforms
 from torch.utils.data import DataLoader
 
-from pointnet import PointCloudData, PointMLP, PointNetBasic, PointNetFull, PointNetFullDualTNet, ToTensor
+from pointnet import PointCloudData, PointMLP, PointNetBasic, PointNetFull, ToTensor
 
 
 def evaluate_model(model, loader, device, use_full=False):
@@ -84,6 +84,8 @@ def plot_architecture_full(save_path):
         ('Transform\\nBMM', '#d9d9d9'),
         ('Conv1d 3->64\\nBN+ReLU', '#f7b267'),
         ('Conv1d 64->64\\nBN+ReLU', '#f7b267'),
+        ('T-Net (64x64)\\nfeature align', '#f6cf71'),
+        ('Feature\\nTransform BMM', '#d9d9d9'),
         ('Conv1d 64->64\\nBN+ReLU', '#f7b267'),
         ('Conv1d 64->128\\nBN+ReLU', '#f7b267'),
         ('Conv1d 128->1024\\nBN+ReLU', '#f7b267'),
@@ -106,7 +108,7 @@ def plot_architecture_full(save_path):
                         arrowprops=dict(arrowstyle='->', lw=1.3, color='#2a2a2a'))
         x += w + gap
 
-    ax.text(0.3, 3.65, 'PointNetFull Architecture (Exercise 2 - with input T-Net 3x3)',
+    ax.text(0.3, 3.65, 'PointNetFull Architecture (dual T-Net: 3x3 + 64x64)',
             fontsize=15, weight='bold')
     ax.set_xlim(0, x + 0.3)
     ax.set_ylim(1.6, 4.0)
@@ -141,34 +143,51 @@ def main():
     pnb.load_state_dict(torch.load(os.path.join(root, 'pointnetbasic_modelnet40.pth'), map_location=device))
 
     pnf = PointNetFull(classes=len(class_names)).to(device)
-    pnf.load_state_dict(torch.load(os.path.join(root, 'pointnetfull_modelnet40.pth'), map_location=device))
-
-    dual_model_path = None
-    dual_candidates = [
-        'pointnetfulldualtnet_allaug_modelnet40.pth',
-        'pointnetfulldualtnet_modelnet40.pth',
+    full_model_candidates = [
+        os.path.join(root, 'pointnetfull_modelnet40.pth'),
+        os.path.join(root, 'pointnetfulldualtnet_modelnet40.pth'),
     ]
-    for candidate in dual_candidates:
-        candidate_path = os.path.join(root, candidate)
-        if os.path.exists(candidate_path):
-            dual_model_path = candidate_path
+    full_model_path = None
+    for candidate in full_model_candidates:
+        if not os.path.exists(candidate):
+            continue
+        try:
+            pnf.load_state_dict(torch.load(candidate, map_location=device))
+            full_model_path = candidate
+            break
+        except RuntimeError:
+            continue
+    if full_model_path is None:
+        raise FileNotFoundError('No compatible PointNetFull checkpoint found.')
+
+    full_aug_candidates = [
+        os.path.join(root, 'pointnetfull_allaug_modelnet40.pth'),
+        os.path.join(root, 'pointnetfulldualtnet_allaug_modelnet40.pth'),
+    ]
+    full_aug_model_path = None
+    for candidate in full_aug_candidates:
+        if os.path.exists(candidate):
+            full_aug_model_path = candidate
             break
 
-    pnd = None
-    if dual_model_path is not None:
-        pnd = PointNetFullDualTNet(classes=len(class_names)).to(device)
-        pnd.load_state_dict(torch.load(dual_model_path, map_location=device))
+    pnf_aug = None
+    if full_aug_model_path is not None:
+        pnf_aug = PointNetFull(classes=len(class_names)).to(device)
+        try:
+            pnf_aug.load_state_dict(torch.load(full_aug_model_path, map_location=device))
+        except RuntimeError:
+            pnf_aug = None
 
-    print('Evaluating MLP/Basic/Full' + ('/FullDual' if pnd is not None else '') + '...')
+    print('Evaluating MLP/Basic/Full' + ('/Full+Aug' if pnf_aug is not None else '') + '...')
     m_tr = evaluate_model(mlp, train_loader, device)
     m_te = evaluate_model(mlp, test_loader, device)
     b_tr = evaluate_model(pnb, train_loader, device)
     b_te = evaluate_model(pnb, test_loader, device)
     f_tr = evaluate_model(pnf, train_loader, device)
     f_te = evaluate_model(pnf, test_loader, device)
-    if pnd is not None:
-        d_tr = evaluate_model(pnd, train_loader, device)
-        d_te = evaluate_model(pnd, test_loader, device)
+    if pnf_aug is not None:
+        fa_tr = evaluate_model(pnf_aug, train_loader, device)
+        fa_te = evaluate_model(pnf_aug, test_loader, device)
 
     plot_architecture_full(os.path.join(fig_dir, 'architecture_pointnetfull.png'))
 
@@ -178,12 +197,12 @@ def main():
     test_acc = [m_te['acc'], b_te['acc'], f_te['acc']]
     train_loss = [m_tr['loss'], b_tr['loss'], f_tr['loss']]
     test_loss = [m_te['loss'], b_te['loss'], f_te['loss']]
-    if pnd is not None:
-        names.append('PointNetFullDual')
-        train_acc.append(d_tr['acc'])
-        test_acc.append(d_te['acc'])
-        train_loss.append(d_tr['loss'])
-        test_loss.append(d_te['loss'])
+    if pnf_aug is not None:
+        names.append('PointNetFull+Aug')
+        train_acc.append(fa_tr['acc'])
+        test_acc.append(fa_te['acc'])
+        train_loss.append(fa_tr['loss'])
+        test_loss.append(fa_te['loss'])
 
     x = np.arange(len(names))
     width = 0.35
@@ -207,7 +226,7 @@ def main():
     axes[1].grid(axis='y', alpha=0.25)
 
     plt.tight_layout()
-    comparison_name = 'comparison_mlp_basic_full_dual.png' if pnd is not None else 'comparison_mlp_basic_full.png'
+    comparison_name = 'comparison_mlp_basic_full_aug.png' if pnf_aug is not None else 'comparison_mlp_basic_full.png'
     plt.savefig(os.path.join(fig_dir, comparison_name), dpi=170, bbox_inches='tight')
     plt.close(fig)
 
@@ -234,26 +253,26 @@ def main():
     plt.savefig(os.path.join(fig_dir, 'per_class_delta_pointnetfull_minus_basic.png'), dpi=170, bbox_inches='tight')
     plt.close(fig)
 
-    if pnd is not None:
-        cm_dual = confusion_matrix(d_te['true'], d_te['pred'], len(class_names))
-        plot_confusion(cm_dual, class_names, os.path.join(fig_dir, 'confusion_pointnetfulldual_test.png'),
-                       'PointNetFullDualTNet Test Confusion (normalized)')
+    if pnf_aug is not None:
+        cm_full_aug = confusion_matrix(fa_te['true'], fa_te['pred'], len(class_names))
+        plot_confusion(cm_full_aug, class_names, os.path.join(fig_dir, 'confusion_pointnetfull_allaug_test.png'),
+                       'PointNetFull+Aug Test Confusion (normalized)')
 
-        per_cls_dual = np.diag(cm_dual) / np.maximum(cm_dual.sum(axis=1), 1)
-        delta_dual_full = per_cls_dual - per_cls_full
-        top_dual = np.argsort(np.abs(delta_dual_full))[::-1][:15]
+        per_cls_full_aug = np.diag(cm_full_aug) / np.maximum(cm_full_aug.sum(axis=1), 1)
+        delta_full_aug = per_cls_full_aug - per_cls_full
+        top_full_aug = np.argsort(np.abs(delta_full_aug))[::-1][:15]
 
         fig, ax = plt.subplots(figsize=(12, 5))
-        vals_dual = delta_dual_full[top_dual] * 100.0
-        ax.bar(np.arange(len(top_dual)), vals_dual, color=np.where(vals_dual >= 0, '#59a14f', '#e15759'))
+        vals_full_aug = delta_full_aug[top_full_aug] * 100.0
+        ax.bar(np.arange(len(top_full_aug)), vals_full_aug, color=np.where(vals_full_aug >= 0, '#59a14f', '#e15759'))
         ax.axhline(0, color='black', linewidth=1)
-        ax.set_xticks(np.arange(len(top_dual)))
-        ax.set_xticklabels([class_names[i] for i in top_dual], rotation=45, ha='right')
+        ax.set_xticks(np.arange(len(top_full_aug)))
+        ax.set_xticklabels([class_names[i] for i in top_full_aug], rotation=45, ha='right')
         ax.set_ylabel('Accuracy delta (percentage points)')
-        ax.set_title('Top |Per-class Delta|: PointNetFullDualTNet - PointNetFull (test)')
+        ax.set_title('Top |Per-class Delta|: PointNetFull+Aug - PointNetFull (test)')
         ax.grid(axis='y', alpha=0.25)
         plt.tight_layout()
-        plt.savefig(os.path.join(fig_dir, 'per_class_delta_pointnetfulldual_minus_full.png'), dpi=170, bbox_inches='tight')
+        plt.savefig(os.path.join(fig_dir, 'per_class_delta_pointnetfull_allaug_minus_full.png'), dpi=170, bbox_inches='tight')
         plt.close(fig)
 
     summary = {
@@ -262,13 +281,13 @@ def main():
         'pointnetbasic': {'train_acc': b_tr['acc'], 'test_acc': b_te['acc'], 'train_loss': b_tr['loss'], 'test_loss': b_te['loss']},
         'pointnetfull': {'train_acc': f_tr['acc'], 'test_acc': f_te['acc'], 'train_loss': f_tr['loss'], 'test_loss': f_te['loss']},
     }
-    if pnd is not None:
-        summary['pointnetfulldual'] = {
-            'train_acc': d_tr['acc'],
-            'test_acc': d_te['acc'],
-            'train_loss': d_tr['loss'],
-            'test_loss': d_te['loss'],
-            'model_path': os.path.basename(dual_model_path),
+    if pnf_aug is not None:
+        summary['pointnetfull_allaug'] = {
+            'train_acc': fa_tr['acc'],
+            'test_acc': fa_te['acc'],
+            'train_loss': fa_tr['loss'],
+            'test_loss': fa_te['loss'],
+            'model_path': os.path.basename(full_aug_model_path),
         }
     with open(os.path.join(root, 'ex2_pointnetfull_summary.json'), 'w') as f:
         json.dump(summary, f, indent=2)
@@ -276,9 +295,9 @@ def main():
     print('PointMLP   train_acc=%.2f test_acc=%.2f train_loss=%.4f test_loss=%.4f' % (m_tr['acc'], m_te['acc'], m_tr['loss'], m_te['loss']))
     print('PointNetB  train_acc=%.2f test_acc=%.2f train_loss=%.4f test_loss=%.4f' % (b_tr['acc'], b_te['acc'], b_tr['loss'], b_te['loss']))
     print('PointNetF  train_acc=%.2f test_acc=%.2f train_loss=%.4f test_loss=%.4f' % (f_tr['acc'], f_te['acc'], f_tr['loss'], f_te['loss']))
-    if pnd is not None:
-        print('PointNetFD train_acc=%.2f test_acc=%.2f train_loss=%.4f test_loss=%.4f'
-              % (d_tr['acc'], d_te['acc'], d_tr['loss'], d_te['loss']))
+    if pnf_aug is not None:
+        print('PointNetFA train_acc=%.2f test_acc=%.2f train_loss=%.4f test_loss=%.4f'
+              % (fa_tr['acc'], fa_te['acc'], fa_tr['loss'], fa_te['loss']))
 
 
 if __name__ == '__main__':

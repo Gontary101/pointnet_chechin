@@ -264,49 +264,6 @@ class PointNetFull(nn.Module):
     def __init__(self, classes=40):
         super().__init__()
         self.input_transform = Tnet(k=3)
-
-        self.conv1 = nn.Conv1d(3, 64, 1)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.conv2 = nn.Conv1d(64, 64, 1)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.conv3 = nn.Conv1d(64, 64, 1)
-        self.bn3 = nn.BatchNorm1d(64)
-        self.conv4 = nn.Conv1d(64, 128, 1)
-        self.bn4 = nn.BatchNorm1d(128)
-        self.conv5 = nn.Conv1d(128, 1024, 1)
-        self.bn5 = nn.BatchNorm1d(1024)
-
-        self.fc1 = nn.Linear(1024, 512)
-        self.bn6 = nn.BatchNorm1d(512)
-        self.fc2 = nn.Linear(512, 256)
-        self.bn7 = nn.BatchNorm1d(256)
-        self.dropout = nn.Dropout(0.3)
-        self.fc3 = nn.Linear(256, classes)
-        self.log_softmax = nn.LogSoftmax(dim=1)
-
-    def forward(self, input):
-        m3x3 = self.input_transform(input)
-        x = torch.bmm(m3x3, input)
-
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn4(self.conv4(x)))
-        x = F.relu(self.bn5(self.conv5(x)))
-        x = torch.max(x, 2, keepdim=False)[0]
-
-        x = F.relu(self.bn6(self.fc1(x)))
-        x = F.relu(self.bn7(self.fc2(x)))
-        x = self.dropout(x)
-        x = self.fc3(x)
-        x = self.log_softmax(x)
-        return x, m3x3
-
-
-class PointNetFullDualTNet(nn.Module):
-    def __init__(self, classes=40):
-        super().__init__()
-        self.input_transform = Tnet(k=3)
         self.feature_transform = Tnet(k=64)
 
         self.conv1 = nn.Conv1d(3, 64, 1)
@@ -514,7 +471,7 @@ def plot_training_history(history, save_path=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PointNet training script')
     parser.add_argument('--dataset', default='ModelNet40_PLY', choices=['ModelNet10_PLY', 'ModelNet40_PLY'])
-    parser.add_argument('--model', default='full', choices=['mlp', 'basic', 'full', 'full_dual'])
+    parser.add_argument('--model', default='full', choices=['mlp', 'basic', 'full'])
     parser.add_argument('--epochs', type=int, default=250)
     parser.add_argument('--patience', type=int, default=30)
     parser.add_argument('--batch-size', type=int, default=32)
@@ -523,8 +480,8 @@ if __name__ == '__main__':
                         help='Use extra augmentations (scale-shift + point dropout + local patch dropout).')
     args = parser.parse_args()
 
-    if args.use_all_aug and args.model != 'full_dual':
-        raise ValueError('Use --use-all-aug only with --model full_dual (train #4).')
+    if args.use_all_aug and args.model != 'full':
+        raise ValueError('Use --use-all-aug only with --model full (train #4).')
 
     t0 = time.time()
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -552,10 +509,8 @@ if __name__ == '__main__':
         model = PointMLP(classes=len(train_ds.classes))
     elif args.model == 'basic':
         model = PointNetBasic(classes=len(train_ds.classes))
-    elif args.model == 'full':
-        model = PointNetFull(classes=len(train_ds.classes))
     else:
-        model = PointNetFullDualTNet(classes=len(train_ds.classes))
+        model = PointNetFull(classes=len(train_ds.classes))
 
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     print("Number of parameters in the Neural Networks: ",
