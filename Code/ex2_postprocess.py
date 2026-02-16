@@ -113,6 +113,8 @@ def plot_architecture(save_path):
 def main():
     root = '/home/gana/Downloads/paul_chechin'
     data_root = os.path.join(root, 'data', 'ModelNet40_PLY')
+    fig_dir = os.path.join(root, 'figures')
+    os.makedirs(fig_dir, exist_ok=True)
 
     test_tf = transforms.Compose([ToTensor()])
     train_ds = PointCloudData(data_root, folder='train', transform=test_tf)
@@ -141,7 +143,7 @@ def main():
     pnb_train = evaluate_model(pnb, train_loader, device)
     pnb_test = evaluate_model(pnb, test_loader, device)
 
-    plot_architecture(os.path.join(root, 'architecture_pointnetbasic.png'))
+    plot_architecture(os.path.join(fig_dir, 'architecture_pointnetbasic.png'))
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     names = ['PointMLP', 'PointNetBasic']
@@ -167,15 +169,15 @@ def main():
     axes[1].grid(axis='y', alpha=0.25)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(root, 'comparison_mlp_vs_pointnetbasic.png'), dpi=170, bbox_inches='tight')
+    plt.savefig(os.path.join(fig_dir, 'comparison_mlp_vs_pointnetbasic.png'), dpi=170, bbox_inches='tight')
     plt.close(fig)
 
     cm_mlp = confusion_matrix(mlp_test['true'], mlp_test['pred'], len(class_names))
     cm_pnb = confusion_matrix(pnb_test['true'], pnb_test['pred'], len(class_names))
 
-    plot_confusion(cm_mlp, class_names, os.path.join(root, 'confusion_pointmlp_test.png'),
+    plot_confusion(cm_mlp, class_names, os.path.join(fig_dir, 'confusion_pointmlp_test.png'),
                    'PointMLP Test Confusion (normalized)')
-    plot_confusion(cm_pnb, class_names, os.path.join(root, 'confusion_pointnetbasic_test.png'),
+    plot_confusion(cm_pnb, class_names, os.path.join(fig_dir, 'confusion_pointnetbasic_test.png'),
                    'PointNetBasic Test Confusion (normalized)')
 
     per_cls_mlp = np.diag(cm_mlp) / np.maximum(cm_mlp.sum(axis=1), 1)
@@ -193,7 +195,7 @@ def main():
     ax.set_title('Top |Per-class Delta|: PointNetBasic - PointMLP (test)')
     ax.grid(axis='y', alpha=0.25)
     plt.tight_layout()
-    plt.savefig(os.path.join(root, 'per_class_delta_pointnetbasic_minus_mlp.png'), dpi=170, bbox_inches='tight')
+    plt.savefig(os.path.join(fig_dir, 'per_class_delta_pointnetbasic_minus_mlp.png'), dpi=170, bbox_inches='tight')
     plt.close(fig)
 
     summary = {

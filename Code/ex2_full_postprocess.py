@@ -118,6 +118,8 @@ def plot_architecture_full(save_path):
 def main():
     root = '/home/gana/Downloads/paul_chechin'
     data_root = os.path.join(root, 'data', 'ModelNet40_PLY')
+    fig_dir = os.path.join(root, 'figures')
+    os.makedirs(fig_dir, exist_ok=True)
 
     tf = transforms.Compose([ToTensor()])
     train_ds = PointCloudData(data_root, folder='train', transform=tf)
@@ -149,7 +151,7 @@ def main():
     f_tr = evaluate_model(pnf, train_loader, device)
     f_te = evaluate_model(pnf, test_loader, device)
 
-    plot_architecture_full(os.path.join(root, 'architecture_pointnetfull.png'))
+    plot_architecture_full(os.path.join(fig_dir, 'architecture_pointnetfull.png'))
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     names = ['PointMLP', 'PointNetBasic', 'PointNetFull']
@@ -175,11 +177,11 @@ def main():
     axes[1].grid(axis='y', alpha=0.25)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(root, 'comparison_mlp_basic_full.png'), dpi=170, bbox_inches='tight')
+    plt.savefig(os.path.join(fig_dir, 'comparison_mlp_basic_full.png'), dpi=170, bbox_inches='tight')
     plt.close(fig)
 
     cm_full = confusion_matrix(f_te['true'], f_te['pred'], len(class_names))
-    plot_confusion(cm_full, class_names, os.path.join(root, 'confusion_pointnetfull_test.png'),
+    plot_confusion(cm_full, class_names, os.path.join(fig_dir, 'confusion_pointnetfull_test.png'),
                    'PointNetFull Test Confusion (normalized)')
 
     cm_basic = confusion_matrix(b_te['true'], b_te['pred'], len(class_names))
@@ -198,7 +200,7 @@ def main():
     ax.set_title('Top |Per-class Delta|: PointNetFull - PointNetBasic (test)')
     ax.grid(axis='y', alpha=0.25)
     plt.tight_layout()
-    plt.savefig(os.path.join(root, 'per_class_delta_pointnetfull_minus_basic.png'), dpi=170, bbox_inches='tight')
+    plt.savefig(os.path.join(fig_dir, 'per_class_delta_pointnetfull_minus_basic.png'), dpi=170, bbox_inches='tight')
     plt.close(fig)
 
     summary = {

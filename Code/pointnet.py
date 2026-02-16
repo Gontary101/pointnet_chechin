@@ -419,7 +419,9 @@ if __name__ == '__main__':
 
     model_name = model.__class__.__name__.lower()
     model_path = f"{model_name}_modelnet40.pth"
-    curves_path = f"{model_name}_training_curves.png"
+    figures_dir = "figures"
+    os.makedirs(figures_dir, exist_ok=True)
+    curves_path = os.path.join(figures_dir, f"{model_name}_training_curves.png")
 
     # Save the trained model
     torch.save(model.state_dict(), model_path)
