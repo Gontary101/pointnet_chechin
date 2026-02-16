@@ -114,34 +114,125 @@ class PointMLP(nn.Module):
         x = self.fc3(x)
         x = self.log_softmax(x)  
         return x
-"""
-
 class PointNetBasic(nn.Module):
     def __init__(self, classes=40):
         super().__init__()
-        # YOUR CODE
+        # Shared MLP over points
+        self.conv1 = nn.Conv1d(3, 64, 1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.conv2 = nn.Conv1d(64, 64, 1)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.conv3 = nn.Conv1d(64, 64, 1)
+        self.bn3 = nn.BatchNorm1d(64)
+        self.conv4 = nn.Conv1d(64, 128, 1)
+        self.bn4 = nn.BatchNorm1d(128)
+        self.conv5 = nn.Conv1d(128, 1024, 1)
+        self.bn5 = nn.BatchNorm1d(1024)
+
+        # Symmetric max pooling to get global feature
+        self.maxpool = nn.MaxPool1d(1024)
+        self.flatten = nn.Flatten(1)
+
+        # Global MLP classifier
+        self.fc1 = nn.Linear(1024, 512)
+        self.bn6 = nn.BatchNorm1d(512)
+        self.fc2 = nn.Linear(512, 256)
+        self.bn7 = nn.BatchNorm1d(256)
+        self.dropout = nn.Dropout(0.3)
+        self.fc3 = nn.Linear(256, classes)
+        self.log_softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, input):
-        # YOUR CODE
-
+        x = F.relu(self.bn1(self.conv1(input)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = F.relu(self.bn5(self.conv5(x)))
+        x = self.maxpool(x)
+        x = self.flatten(x)
+        x = F.relu(self.bn6(self.fc1(x)))
+        x = F.relu(self.bn7(self.fc2(x)))
+        x = self.dropout(x)
+        x = self.fc3(x)
+        x = self.log_softmax(x)
+        return x
 
 class Tnet(nn.Module):
     def __init__(self, k=3):
         super().__init__()
-        # YOUR CODE
+        self.k = k
+        self.conv1 = nn.Conv1d(k, 64, 1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.conv2 = nn.Conv1d(64, 128, 1)
+        self.bn2 = nn.BatchNorm1d(128)
+        self.conv3 = nn.Conv1d(128, 1024, 1)
+        self.bn3 = nn.BatchNorm1d(1024)
+
+        self.fc1 = nn.Linear(1024, 512)
+        self.bn4 = nn.BatchNorm1d(512)
+        self.fc2 = nn.Linear(512, 256)
+        self.bn5 = nn.BatchNorm1d(256)
+        self.fc3 = nn.Linear(256, k * k)
 
     def forward(self, input):
-        # YOUR CODE
+        bsize = input.size(0)
+
+        x = F.relu(self.bn1(self.conv1(input)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = torch.max(x, 2, keepdim=False)[0]
+
+        x = F.relu(self.bn4(self.fc1(x)))
+        x = F.relu(self.bn5(self.fc2(x)))
+        x = self.fc3(x)
+
+        id_matrix = torch.eye(self.k, device=input.device).reshape(1, self.k * self.k).repeat(bsize, 1)
+        x = x + id_matrix
+        x = x.view(-1, self.k, self.k)
+        return x
 
 
 class PointNetFull(nn.Module):
     def __init__(self, classes=40):
         super().__init__()
-        # YOUR CODE
+        self.input_transform = Tnet(k=3)
+
+        self.conv1 = nn.Conv1d(3, 64, 1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.conv2 = nn.Conv1d(64, 64, 1)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.conv3 = nn.Conv1d(64, 64, 1)
+        self.bn3 = nn.BatchNorm1d(64)
+        self.conv4 = nn.Conv1d(64, 128, 1)
+        self.bn4 = nn.BatchNorm1d(128)
+        self.conv5 = nn.Conv1d(128, 1024, 1)
+        self.bn5 = nn.BatchNorm1d(1024)
+
+        self.fc1 = nn.Linear(1024, 512)
+        self.bn6 = nn.BatchNorm1d(512)
+        self.fc2 = nn.Linear(512, 256)
+        self.bn7 = nn.BatchNorm1d(256)
+        self.dropout = nn.Dropout(0.3)
+        self.fc3 = nn.Linear(256, classes)
+        self.log_softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, input):
-        # YOUR CODE
-"""
+        m3x3 = self.input_transform(input)
+        x = torch.bmm(m3x3, input)
+
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = F.relu(self.bn5(self.conv5(x)))
+        x = torch.max(x, 2, keepdim=False)[0]
+
+        x = F.relu(self.bn6(self.fc1(x)))
+        x = F.relu(self.bn7(self.fc2(x)))
+        x = self.dropout(x)
+        x = self.fc3(x)
+        x = self.log_softmax(x)
+        return x, m3x3
 def basic_loss(outputs, labels):
     criterion = torch.nn.NLLLoss()
     bsize = outputs.size(0)
@@ -158,10 +249,14 @@ def pointnet_full_loss(outputs, labels, m3x3, alpha=0.001):
     return criterion(outputs, labels) + alpha * (torch.norm(diff3x3)) / float(bsize)
 
 
-def train(model, device, train_loader, test_loader=None, epochs=250):
+def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                 step_size=20, gamma=0.5)
+    best_test_loss = float('inf')
+    best_epoch = 0
+    best_state = None
+    epochs_no_improve = 0
     
     # History tracking
     history = {
@@ -179,10 +274,13 @@ def train(model, device, train_loader, test_loader=None, epochs=250):
         for i, data in enumerate(train_loader, 0):
             inputs, labels = data['pointcloud'].to(device).float(), data['category'].to(device)
             optimizer.zero_grad()
-            outputs = model(inputs.transpose(1, 2))
-            # outputs, m3x3 = model(inputs.transpose(1,2))
-            loss = basic_loss(outputs, labels)
-            # loss = pointnet_full_loss(outputs, labels, m3x3)
+            model_out = model(inputs.transpose(1, 2))
+            if isinstance(model_out, tuple):
+                outputs, m3x3 = model_out
+                loss = pointnet_full_loss(outputs, labels, m3x3)
+            else:
+                outputs = model_out
+                loss = basic_loss(outputs, labels)
             loss.backward()
             optimizer.step()
             
@@ -206,9 +304,13 @@ def train(model, device, train_loader, test_loader=None, epochs=250):
             with torch.no_grad():
                 for data in test_loader:
                     inputs, labels = data['pointcloud'].to(device).float(), data['category'].to(device)
-                    outputs = model(inputs.transpose(1, 2))
-                    # outputs, __ = model(inputs.transpose(1,2))
-                    loss = basic_loss(outputs, labels)
+                    model_out = model(inputs.transpose(1, 2))
+                    if isinstance(model_out, tuple):
+                        outputs, m3x3 = model_out
+                        loss = pointnet_full_loss(outputs, labels, m3x3)
+                    else:
+                        outputs = model_out
+                        loss = basic_loss(outputs, labels)
                     test_loss += loss.item()
                     _, predicted = torch.max(outputs.data, 1)
                     test_total += labels.size(0)
@@ -218,13 +320,30 @@ def train(model, device, train_loader, test_loader=None, epochs=250):
             test_acc = 100. * test_correct / test_total
             history['test_loss'].append(avg_test_loss)
             history['test_acc'].append(test_acc)
+
+            if avg_test_loss < (best_test_loss - min_delta):
+                best_test_loss = avg_test_loss
+                best_epoch = epoch + 1
+                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
             
             print('Epoch: %d, Train Loss: %.3f, Train Acc: %.1f %%, Test Loss: %.3f, Test Acc: %.1f %%' 
                   % (epoch+1, avg_train_loss, train_acc, avg_test_loss, test_acc))
+            print('Best Test Loss: %.3f (epoch %d), EarlyStop patience: %d/%d'
+                  % (best_test_loss, best_epoch, epochs_no_improve, patience))
+
+            if epochs_no_improve >= patience:
+                print('Early stopping triggered at epoch %d' % (epoch + 1))
+                break
 
         scheduler.step()
-    
-    return history
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    return history, best_epoch, best_test_loss
 
 
 def plot_training_history(history, save_path=None):
@@ -265,7 +384,9 @@ def plot_training_history(history, save_path=None):
 if __name__ == '__main__':
     t0 = time.time()
     train_ds = PointCloudData("/home/gana/Downloads/paul_chechin/data/ModelNet40_PLY")
-    test_ds = PointCloudData("/home/gana/Downloads/paul_chechin/data/ModelNet40_PLY", folder='test')
+    test_ds = PointCloudData("/home/gana/Downloads/paul_chechin/data/ModelNet40_PLY",
+                             folder='test',
+                             transform=transforms.Compose([ToTensor()]))
 
     inv_classes = {i: cat for cat, i in train_ds.classes.items()}
     print("Classes: ", inv_classes)
@@ -279,9 +400,9 @@ if __name__ == '__main__':
     test_loader = DataLoader(dataset=test_ds, batch_size=32,
                              num_workers=12, pin_memory=True)
 
-    model = PointMLP()
+    #model = PointMLP()
     # model = PointNetBasic()
-    # model = PointNetFull()
+    model = PointNetFull()
 
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     print("Number of parameters in the Neural Networks: ",
@@ -291,12 +412,18 @@ if __name__ == '__main__':
     print("Device: ", device)
     model.to(device)
 
-    history = train(model, device, train_loader, test_loader, epochs=250)
+    history, best_epoch, best_test_loss = train(model, device, train_loader, test_loader,
+                                                epochs=250, patience=30)
     print("Total time for training : ", time.time() - t0)
+    print("Best validation test loss: %.3f at epoch %d" % (best_test_loss, best_epoch))
+
+    model_name = model.__class__.__name__.lower()
+    model_path = f"{model_name}_modelnet40.pth"
+    curves_path = f"{model_name}_training_curves.png"
 
     # Save the trained model
-    torch.save(model.state_dict(), "pointmlp_modelnet40.pth")
-    print("Model saved to pointmlp_modelnet40.pth")
+    torch.save(model.state_dict(), model_path)
+    print(f"Model saved to {model_path}")
 
     # Plot and save training curves
-    plot_training_history(history, save_path="training_curves.png")
+    plot_training_history(history, save_path=curves_path)
