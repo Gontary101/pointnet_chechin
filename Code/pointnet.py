@@ -9,6 +9,7 @@ import random
 import math
 import os
 import time
+import argparse
 import torch
 import scipy.spatial.distance
 from torch.utils.data import Dataset, DataLoader
@@ -24,6 +25,7 @@ from ply import write_ply, read_ply
 
 
 class RandomRotation_z(object):
+    """Randomly rotates the point cloud around the z-axis."""
     def __call__(self, pointcloud):
         theta = random.random() * 2. * math.pi
         rot_matrix = np.array([[math.cos(theta), -math.sin(theta),      0],
@@ -34,6 +36,7 @@ class RandomRotation_z(object):
 
 
 class RandomNoise(object):
+    """Adds Gaussian noise to simulate sensor jitter."""
     def __call__(self, pointcloud):
         noise = np.random.normal(0, 0.02, (pointcloud.shape))
         noisy_pointcloud = pointcloud + noise
@@ -41,9 +44,64 @@ class RandomNoise(object):
 
 
 class ShufflePoints(object):
+    """Shuffles point order to enforce permutation invariance."""
     def __call__(self, pointcloud):
         np.random.shuffle(pointcloud)
         return pointcloud
+
+
+class RandomPointDropout(object):
+    """Randomly drops points to mimic missing measurements."""
+    def __init__(self, max_dropout_ratio=0.35):
+        self.max_dropout_ratio = max_dropout_ratio
+
+    def __call__(self, pointcloud):
+        dropout_ratio = np.random.random() * self.max_dropout_ratio
+        drop_mask = np.random.random(pointcloud.shape[0]) < dropout_ratio
+        if np.any(drop_mask):
+            pointcloud = pointcloud.copy()
+            pointcloud[drop_mask] = pointcloud[0]
+        return pointcloud
+
+
+class RandomLocalPatchDropout(object):
+    """Removes one local neighborhood to mimic partial occlusion."""
+    def __init__(self, drop_ratio=0.15):
+        self.drop_ratio = drop_ratio
+
+    def __call__(self, pointcloud):
+        n = pointcloud.shape[0]
+        num_drop = int(max(1, min(n - 1, self.drop_ratio * n)))
+
+        center_idx = np.random.randint(0, n)
+        center = pointcloud[center_idx:center_idx + 1]
+
+        d2 = np.sum((pointcloud - center) ** 2, axis=1)
+        drop_idx = np.argsort(d2)[:num_drop]
+
+        keep_mask = np.ones(n, dtype=bool)
+        keep_mask[drop_idx] = False
+        kept = pointcloud[keep_mask]
+        if kept.shape[0] == 0:
+            return pointcloud
+
+        refill_idx = np.random.choice(kept.shape[0], size=num_drop, replace=True)
+        out = pointcloud.copy()
+        out[drop_idx] = kept[refill_idx]
+        return out
+
+
+class RandomScaleShift(object):
+    """Applies random global scale and small 3D translation."""
+    def __init__(self, scale_low=0.8, scale_high=1.25, shift_range=0.1):
+        self.scale_low = scale_low
+        self.scale_high = scale_high
+        self.shift_range = shift_range
+
+    def __call__(self, pointcloud):
+        scale = np.random.uniform(self.scale_low, self.scale_high)
+        shift = np.random.uniform(-self.shift_range, self.shift_range, size=(1, 3))
+        return (pointcloud * scale + shift).astype(np.float32)
 
 
 class ToTensor(object):
@@ -55,6 +113,16 @@ def default_transforms():
     return transforms.Compose([RandomRotation_z(),
                                RandomNoise(),
                                ShufflePoints(),
+                               ToTensor()])
+
+
+def all_aug_transforms():
+    return transforms.Compose([RandomRotation_z(),
+                               RandomNoise(),
+                               ShufflePoints(),
+                               RandomScaleShift(),
+                               RandomPointDropout(),
+                               RandomLocalPatchDropout(),
                                ToTensor()])
 
 
@@ -193,6 +261,49 @@ class Tnet(nn.Module):
 
 
 class PointNetFull(nn.Module):
+    def __init__(self, classes=40):
+        super().__init__()
+        self.input_transform = Tnet(k=3)
+
+        self.conv1 = nn.Conv1d(3, 64, 1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.conv2 = nn.Conv1d(64, 64, 1)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.conv3 = nn.Conv1d(64, 64, 1)
+        self.bn3 = nn.BatchNorm1d(64)
+        self.conv4 = nn.Conv1d(64, 128, 1)
+        self.bn4 = nn.BatchNorm1d(128)
+        self.conv5 = nn.Conv1d(128, 1024, 1)
+        self.bn5 = nn.BatchNorm1d(1024)
+
+        self.fc1 = nn.Linear(1024, 512)
+        self.bn6 = nn.BatchNorm1d(512)
+        self.fc2 = nn.Linear(512, 256)
+        self.bn7 = nn.BatchNorm1d(256)
+        self.dropout = nn.Dropout(0.3)
+        self.fc3 = nn.Linear(256, classes)
+        self.log_softmax = nn.LogSoftmax(dim=1)
+
+    def forward(self, input):
+        m3x3 = self.input_transform(input)
+        x = torch.bmm(m3x3, input)
+
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = F.relu(self.bn5(self.conv5(x)))
+        x = torch.max(x, 2, keepdim=False)[0]
+
+        x = F.relu(self.bn6(self.fc1(x)))
+        x = F.relu(self.bn7(self.fc2(x)))
+        x = self.dropout(x)
+        x = self.fc3(x)
+        x = self.log_softmax(x)
+        return x, m3x3
+
+
+class PointNetFullDualTNet(nn.Module):
     def __init__(self, classes=40):
         super().__init__()
         self.input_transform = Tnet(k=3)
@@ -401,10 +512,26 @@ def plot_training_history(history, save_path=None):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='PointNet training script')
+    parser.add_argument('--dataset', default='ModelNet40_PLY', choices=['ModelNet10_PLY', 'ModelNet40_PLY'])
+    parser.add_argument('--model', default='full', choices=['mlp', 'basic', 'full', 'full_dual'])
+    parser.add_argument('--epochs', type=int, default=250)
+    parser.add_argument('--patience', type=int, default=30)
+    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--num-workers', type=int, default=12)
+    parser.add_argument('--use-all-aug', action='store_true',
+                        help='Use extra augmentations (scale-shift + point dropout + local patch dropout).')
+    args = parser.parse_args()
+
+    if args.use_all_aug and args.model != 'full_dual':
+        raise ValueError('Use --use-all-aug only with --model full_dual (train #4).')
+
     t0 = time.time()
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    data_root = os.path.join(project_root, "data", "ModelNet40_PLY")
-    train_ds = PointCloudData(data_root)
+    data_root = os.path.join(project_root, "data", args.dataset)
+
+    train_transform = all_aug_transforms() if args.use_all_aug else default_transforms()
+    train_ds = PointCloudData(data_root, transform=train_transform)
     test_ds = PointCloudData(data_root,
                              folder='test',
                              transform=transforms.Compose([ToTensor()]))
@@ -416,14 +543,19 @@ if __name__ == '__main__':
     print('Number of classes: ', len(train_ds.classes))
     print('Sample pointcloud shape: ', train_ds[0]['pointcloud'].size())
 
-    train_loader = DataLoader(dataset=train_ds, batch_size=32, shuffle=True,
-                              num_workers=12, pin_memory=True)
-    test_loader = DataLoader(dataset=test_ds, batch_size=32,
-                             num_workers=12, pin_memory=True)
+    train_loader = DataLoader(dataset=train_ds, batch_size=args.batch_size, shuffle=True,
+                              num_workers=args.num_workers, pin_memory=torch.cuda.is_available())
+    test_loader = DataLoader(dataset=test_ds, batch_size=args.batch_size,
+                             num_workers=args.num_workers, pin_memory=torch.cuda.is_available())
 
-    #model = PointMLP()
-    # model = PointNetBasic()
-    model = PointNetFull()
+    if args.model == 'mlp':
+        model = PointMLP(classes=len(train_ds.classes))
+    elif args.model == 'basic':
+        model = PointNetBasic(classes=len(train_ds.classes))
+    elif args.model == 'full':
+        model = PointNetFull(classes=len(train_ds.classes))
+    else:
+        model = PointNetFullDualTNet(classes=len(train_ds.classes))
 
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     print("Number of parameters in the Neural Networks: ",
@@ -434,15 +566,19 @@ if __name__ == '__main__':
     model.to(device)
 
     history, best_epoch, best_test_loss = train(model, device, train_loader, test_loader,
-                                                epochs=250, patience=30)
+                                                epochs=args.epochs, patience=args.patience)
     print("Total time for training : ", time.time() - t0)
     print("Best validation test loss: %.3f at epoch %d" % (best_test_loss, best_epoch))
 
     model_name = model.__class__.__name__.lower()
-    model_path = f"{model_name}_modelnet40.pth"
+    dataset_tag = args.dataset.lower().replace('_ply', '')
+    run_tag = f"{model_name}_{dataset_tag}"
+    if args.use_all_aug:
+        run_tag = f"{model_name}_allaug_{dataset_tag}"
+    model_path = f"{run_tag}.pth"
     figures_dir = "figures"
     os.makedirs(figures_dir, exist_ok=True)
-    curves_path = os.path.join(figures_dir, f"{model_name}_training_curves.png")
+    curves_path = os.path.join(figures_dir, f"{run_tag}_training_curves.png")
 
     # Save the trained model
     torch.save(model.state_dict(), model_path)
