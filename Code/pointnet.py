@@ -40,6 +40,48 @@ class RandomNoise(object):
         return noisy_pointcloud
 
 
+class RandomScale(object):
+    def __init__(self, low=0.8, high=1.25):
+        self.low = low
+        self.high = high
+
+    def __call__(self, pointcloud):
+        scale = np.random.uniform(self.low, self.high)
+        return pointcloud * scale
+
+
+class RandomTranslate(object):
+    def __init__(self, shift=0.1):
+        self.shift = shift
+
+    def __call__(self, pointcloud):
+        translation = np.random.uniform(-self.shift, self.shift, (1, 3))
+        return pointcloud + translation
+
+
+class RandomJitter(object):
+    def __init__(self, sigma=0.01, clip=0.03):
+        self.sigma = sigma
+        self.clip = clip
+
+    def __call__(self, pointcloud):
+        noise = np.clip(np.random.normal(0.0, self.sigma, pointcloud.shape),
+                        -self.clip, self.clip)
+        return pointcloud + noise
+
+
+class RandomPointDropout(object):
+    def __init__(self, max_dropout_ratio=0.3):
+        self.max_dropout_ratio = max_dropout_ratio
+
+    def __call__(self, pointcloud):
+        dropout_ratio = np.random.random() * self.max_dropout_ratio
+        drop_idx = np.where(np.random.random(pointcloud.shape[0]) <= dropout_ratio)[0]
+        if drop_idx.size > 0:
+            pointcloud[drop_idx, :] = pointcloud[0, :]
+        return pointcloud
+
+
 class ShufflePoints(object):
     def __call__(self, pointcloud):
         np.random.shuffle(pointcloud)
@@ -53,7 +95,10 @@ class ToTensor(object):
 
 def default_transforms():
     return transforms.Compose([RandomRotation_z(),
-                               RandomNoise(),
+                               RandomScale(),
+                               RandomTranslate(),
+                               RandomJitter(),
+                               RandomPointDropout(),
                                ShufflePoints(),
                                ToTensor()])
 
@@ -238,32 +283,40 @@ class PointNetFull(nn.Module):
         x = self.fc3(x)
         x = self.log_softmax(x)
         return x, m3x3, m64x64
-def basic_loss(outputs, labels):
-    criterion = torch.nn.NLLLoss()
+
+
+def smoothed_nll_loss(outputs, labels, label_smoothing=0.0):
+    nll = F.nll_loss(outputs, labels, reduction='mean')
+    if label_smoothing <= 0.0:
+        return nll
+    smooth = -outputs.mean(dim=1).mean()
+    return (1.0 - label_smoothing) * nll + label_smoothing * smooth
+
+
+def basic_loss(outputs, labels, label_smoothing=0.0):
+    return smoothed_nll_loss(outputs, labels, label_smoothing=label_smoothing)
+
+
+def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001, label_smoothing=0.0):
     bsize = outputs.size(0)
-    return criterion(outputs, labels)
-
-
-def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001):
-    criterion = torch.nn.NLLLoss()
-    bsize = outputs.size(0)
-
-    id3x3 = torch.eye(3, device=outputs.device).repeat(bsize, 1, 1)
+    id3x3 = torch.eye(3, device=outputs.device).unsqueeze(0).repeat(bsize, 1, 1)
     diff3x3 = id3x3 - torch.bmm(m3x3, m3x3.transpose(1, 2))
     reg = torch.norm(diff3x3) / float(bsize)
 
     if m64x64 is not None:
-        id64x64 = torch.eye(64, device=outputs.device).repeat(bsize, 1, 1)
+        id64x64 = torch.eye(64, device=outputs.device).unsqueeze(0).repeat(bsize, 1, 1)
         diff64x64 = id64x64 - torch.bmm(m64x64, m64x64.transpose(1, 2))
         reg = reg + torch.norm(diff64x64) / float(bsize)
 
-    return criterion(outputs, labels) + alpha * reg
+    return smoothed_nll_loss(outputs, labels, label_smoothing=label_smoothing) + alpha * reg
 
 
-def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=20, gamma=0.5)
+def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0,
+          label_smoothing=0.1, lr=0.001, weight_decay=1e-4, grad_clip=1.0):
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                           T_max=epochs,
+                                                           eta_min=lr * 0.01)
     best_test_loss = float('inf')
     best_epoch = 0
     best_state = None
@@ -292,11 +345,15 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
                 else:
                     outputs, m3x3 = model_out
                     m64x64 = None
-                loss = pointnet_full_loss(outputs, labels, m3x3, m64x64)
+                loss = pointnet_full_loss(outputs, labels, m3x3, m64x64,
+                                          label_smoothing=label_smoothing)
             else:
                 outputs = model_out
-                loss = basic_loss(outputs, labels)
+                loss = basic_loss(outputs, labels,
+                                  label_smoothing=label_smoothing)
             loss.backward()
+            if grad_clip is not None and grad_clip > 0.0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
             
             train_loss += loss.item()
@@ -326,10 +383,12 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
                         else:
                             outputs, m3x3 = model_out
                             m64x64 = None
-                        loss = pointnet_full_loss(outputs, labels, m3x3, m64x64)
+                        loss = pointnet_full_loss(outputs, labels, m3x3, m64x64,
+                                                  label_smoothing=0.0)
                     else:
                         outputs = model_out
-                        loss = basic_loss(outputs, labels)
+                        loss = basic_loss(outputs, labels,
+                                          label_smoothing=0.0)
                     test_loss += loss.item()
                     _, predicted = torch.max(outputs.data, 1)
                     test_total += labels.size(0)
