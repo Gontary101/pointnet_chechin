@@ -1,0 +1,55 @@
+{
+  "run_id": "r18_first_tnet_only_baseline_plus_point_dropout_seed0",
+  "run_name": "first-TNet-only baseline + RandomPointDropout only (seed offset 0)",
+  "timestamp": "2026-02-17T13:54:55",
+  "device": "cuda:0",
+  "epochs_max": 120,
+  "epochs_ran": 77,
+  "best_epoch_by_loss": 47,
+  "best_test_loss": 0.47103097014566614,
+  "strict_train_loss": 0.15494961878105984,
+  "strict_train_acc": 94.65610078228183,
+  "strict_test_loss": 0.47103097014566614,
+  "strict_test_acc": 86.6288492706645,
+  "vote_test_loss": 0.47103097014566614,
+  "vote_test_acc": 86.6288492706645,
+  "vote_count": 1,
+  "vote_mode": "none",
+  "config": {
+    "id": "r18_first_tnet_only_baseline_plus_point_dropout_seed0",
+    "name": "first-TNet-only baseline + RandomPointDropout only (seed offset 0)",
+    "seed_offset": 0,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": true,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001,
+      "reg_input": true,
+      "reg_feature": true
+    },
+    "vote_eval": {
+      "vote_count": 1,
+      "vote_mode": "none"
+    }
+  },
+  "paths": {
+    "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_pointnetfull.pth",
+    "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_training_curves.png",
+    "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_summary.json",
+    "details": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_details.json",
+    "confusion_test": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_confusion_test.png"
+  },
+  "elapsed_seconds": 1480.184524
+}

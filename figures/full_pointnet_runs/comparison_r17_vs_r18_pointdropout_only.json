@@ -1,0 +1,34 @@
+{
+  "baseline_run": "r17_first_tnet_only_baseline_recipe_seed0",
+  "dropout_run": "r18_first_tnet_only_baseline_plus_point_dropout_seed0",
+  "baseline": {
+    "strict_test_acc": 86.58833063209076,
+    "strict_test_loss": 0.4834323806059509,
+    "epochs_ran": 77,
+    "best_epoch_by_loss": 47,
+    "paths": {
+      "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_pointnetfull.pth",
+      "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_training_curves.png",
+      "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_summary.json",
+      "details": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_details.json",
+      "confusion_test": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_confusion_test.png"
+    }
+  },
+  "with_random_point_dropout": {
+    "strict_test_acc": 86.6288492706645,
+    "strict_test_loss": 0.47103097014566614,
+    "epochs_ran": 77,
+    "best_epoch_by_loss": 47,
+    "paths": {
+      "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_pointnetfull.pth",
+      "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_training_curves.png",
+      "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_summary.json",
+      "details": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_details.json",
+      "confusion_test": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r18_first_tnet_only_baseline_plus_point_dropout_seed0_confusion_test.png"
+    }
+  },
+  "delta_dropout_minus_baseline": {
+    "strict_test_acc": 0.040518638573743715,
+    "strict_test_loss": -0.012401410460284756
+  }
+}

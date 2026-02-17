@@ -1,0 +1,52 @@
+{
+  "run_id": "r09_nonorm_aug_opt_featreg_only_seed9",
+  "run_name": "r07 recipe, different seed (offset 9)",
+  "timestamp": "2026-02-17T01:35:03",
+  "device": "cuda:0",
+  "epochs_max": 120,
+  "epochs_ran": 120,
+  "best_epoch_by_loss": 97,
+  "best_test_loss": 0.46838634327126477,
+  "strict_train_loss": 0.1925769912679421,
+  "strict_train_acc": 96.26130244844052,
+  "strict_test_loss": 0.46838634327126477,
+  "strict_test_acc": 88.0064829821718,
+  "vote_test_loss": 0.46474773976559386,
+  "vote_test_acc": 88.41166936790924,
+  "vote_count": 12,
+  "vote_mode": "rotate",
+  "config": {
+    "id": "r09_nonorm_aug_opt_featreg_only_seed9",
+    "name": "r07 recipe, different seed (offset 9)",
+    "seed_offset": 9,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    },
+    "vote_eval": {
+      "vote_count": 12,
+      "vote_mode": "rotate"
+    }
+  },
+  "paths": {
+    "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r09_nonorm_aug_opt_featreg_only_seed9_pointnetfull.pth",
+    "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r09_nonorm_aug_opt_featreg_only_seed9_training_curves.png",
+    "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r09_nonorm_aug_opt_featreg_only_seed9_summary.json"
+  },
+  "elapsed_seconds": 1725.226364
+}

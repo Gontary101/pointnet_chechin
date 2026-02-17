@@ -1,0 +1,53 @@
+{
+  "run_id": "r15_no_rot_ls_no_dropout_seed15",
+  "run_name": "r14 recipe, different seed (offset 15)",
+  "timestamp": "2026-02-17T04:07:47",
+  "device": "cuda:0",
+  "epochs_max": 120,
+  "epochs_ran": 112,
+  "best_epoch_by_loss": 87,
+  "best_test_loss": 0.4586816011796701,
+  "strict_train_loss": 0.15067521956324711,
+  "strict_train_acc": 97.78522808086966,
+  "strict_test_loss": 0.4586816011796701,
+  "strict_test_acc": 88.69529983792545,
+  "vote_test_loss": 0.4586816011796701,
+  "vote_test_acc": 88.69529983792545,
+  "vote_count": 1,
+  "vote_mode": "none",
+  "config": {
+    "id": "r15_no_rot_ls_no_dropout_seed15",
+    "name": "r14 recipe, different seed (offset 15)",
+    "seed_offset": 15,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    },
+    "vote_eval": {
+      "vote_count": 1,
+      "vote_mode": "none"
+    }
+  },
+  "paths": {
+    "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r15_no_rot_ls_no_dropout_seed15_pointnetfull.pth",
+    "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r15_no_rot_ls_no_dropout_seed15_training_curves.png",
+    "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r15_no_rot_ls_no_dropout_seed15_summary.json"
+  },
+  "elapsed_seconds": 1581.952575
+}

@@ -1,0 +1,50 @@
+{
+  "run_id": "r01_norm_sample",
+  "run_name": "Add normalize + random sample (same optimizer)",
+  "timestamp": "2026-02-16T21:51:16",
+  "device": "cuda:0",
+  "epochs_max": 120,
+  "epochs_ran": 66,
+  "best_epoch_by_loss": 41,
+  "best_test_loss": 0.5360178761667236,
+  "strict_train_loss": 0.24746822649587477,
+  "strict_train_acc": 91.25266686985675,
+  "strict_test_loss": 0.5360178761667236,
+  "strict_test_acc": 85.41329011345219,
+  "vote_test_loss": 0.5360178761667236,
+  "vote_test_acc": 85.41329011345219,
+  "vote_count": 1,
+  "vote_mode": "none",
+  "config": {
+    "id": "r01_norm_sample",
+    "name": "Add normalize + random sample (same optimizer)",
+    "seed_offset": 1,
+    "augment": {
+      "normalize": true,
+      "random_sample": true,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001
+    },
+    "vote_eval": {
+      "vote_count": 1,
+      "vote_mode": "none"
+    }
+  },
+  "paths": {
+    "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r01_norm_sample_pointnetfull.pth",
+    "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r01_norm_sample_training_curves.png",
+    "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r01_norm_sample_summary.json"
+  },
+  "elapsed_seconds": 1122.048538
+}

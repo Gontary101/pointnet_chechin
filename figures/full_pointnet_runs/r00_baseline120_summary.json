@@ -1,0 +1,50 @@
+{
+  "run_id": "r00_baseline120",
+  "run_name": "Baseline recipe (StepLR+Adam, simple aug)",
+  "timestamp": "2026-02-16T21:32:15",
+  "device": "cuda:0",
+  "epochs_max": 120,
+  "epochs_ran": 75,
+  "best_epoch_by_loss": 50,
+  "best_test_loss": 0.5450907246114587,
+  "strict_train_loss": 0.17242346313272708,
+  "strict_train_acc": 94.14812557147211,
+  "strict_test_loss": 0.5450907246114587,
+  "strict_test_acc": 86.10210696920583,
+  "vote_test_loss": 0.5450907246114587,
+  "vote_test_acc": 86.10210696920583,
+  "vote_count": 1,
+  "vote_mode": "none",
+  "config": {
+    "id": "r00_baseline120",
+    "name": "Baseline recipe (StepLR+Adam, simple aug)",
+    "seed_offset": 0,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001
+    },
+    "vote_eval": {
+      "vote_count": 1,
+      "vote_mode": "none"
+    }
+  },
+  "paths": {
+    "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r00_baseline120_pointnetfull.pth",
+    "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r00_baseline120_training_curves.png",
+    "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r00_baseline120_summary.json"
+  },
+  "elapsed_seconds": 1176.481135
+}

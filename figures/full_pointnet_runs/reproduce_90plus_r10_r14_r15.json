@@ -1,0 +1,18 @@
+{
+  "device": "cuda:0",
+  "single_r14": {
+    "acc": 89.46515397082658,
+    "loss": 0.4420783340061503,
+    "n": 2468
+  },
+  "ensemble_r10_r14_r15": {
+    "acc": 90.11345218800648,
+    "loss": 0.4068280433333287,
+    "n": 2468
+  },
+  "checkpoints": {
+    "r10": "figures/full_pointnet_runs/r10_no_rot_aug_opt_featreg_seed10_pointnetfull.pth",
+    "r14": "figures/full_pointnet_runs/r14_no_rot_ls_no_dropout_seed14_pointnetfull.pth",
+    "r15": "figures/full_pointnet_runs/r15_no_rot_ls_no_dropout_seed15_pointnetfull.pth"
+  }
+}

@@ -40,48 +40,6 @@ class RandomNoise(object):
         return noisy_pointcloud
 
 
-class RandomScale(object):
-    def __init__(self, low=0.8, high=1.25):
-        self.low = low
-        self.high = high
-
-    def __call__(self, pointcloud):
-        scale = np.random.uniform(self.low, self.high)
-        return pointcloud * scale
-
-
-class RandomTranslate(object):
-    def __init__(self, shift=0.1):
-        self.shift = shift
-
-    def __call__(self, pointcloud):
-        translation = np.random.uniform(-self.shift, self.shift, (1, 3))
-        return pointcloud + translation
-
-
-class RandomJitter(object):
-    def __init__(self, sigma=0.01, clip=0.03):
-        self.sigma = sigma
-        self.clip = clip
-
-    def __call__(self, pointcloud):
-        noise = np.clip(np.random.normal(0.0, self.sigma, pointcloud.shape),
-                        -self.clip, self.clip)
-        return pointcloud + noise
-
-
-class RandomPointDropout(object):
-    def __init__(self, max_dropout_ratio=0.3):
-        self.max_dropout_ratio = max_dropout_ratio
-
-    def __call__(self, pointcloud):
-        dropout_ratio = np.random.random() * self.max_dropout_ratio
-        drop_idx = np.where(np.random.random(pointcloud.shape[0]) <= dropout_ratio)[0]
-        if drop_idx.size > 0:
-            pointcloud[drop_idx, :] = pointcloud[0, :]
-        return pointcloud
-
-
 class ShufflePoints(object):
     def __call__(self, pointcloud):
         np.random.shuffle(pointcloud)
@@ -95,10 +53,7 @@ class ToTensor(object):
 
 def default_transforms():
     return transforms.Compose([RandomRotation_z(),
-                               RandomScale(),
-                               RandomTranslate(),
-                               RandomJitter(),
-                               RandomPointDropout(),
+                               RandomNoise(),
                                ShufflePoints(),
                                ToTensor()])
 
@@ -114,7 +69,6 @@ class PointCloudData(Dataset):
         self.classes = {folder: i for i, folder in enumerate(folders)}
         self.transforms = transform
         self.files = []
-        self.cache = {}
         for category in self.classes.keys():
             new_dir = root_dir+"/"+category+"/"+folder
             for file in os.listdir(new_dir):
@@ -128,16 +82,12 @@ class PointCloudData(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        if idx in self.cache:
-            pointcloud_np = self.cache[idx].copy()
-        else:
-            ply_path = self.files[idx]['ply_path']
-            data = read_ply(ply_path)
-            pointcloud_np = np.vstack((data['x'], data['y'], data['z'])).T.astype(np.float32)
-            self.cache[idx] = pointcloud_np
-            pointcloud_np = pointcloud_np.copy()
+        ply_path = self.files[idx]['ply_path']
         category = self.files[idx]['category']
-        pointcloud = self.transforms(pointcloud_np)
+        data = read_ply(ply_path)
+        pointcloud = self.transforms(np.vstack((data['x'],
+                                                data['y'],
+                                                data['z'])).T)
         return {'pointcloud': pointcloud, 'category': self.classes[category]}
 
 
@@ -223,9 +173,6 @@ class Tnet(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.bn5 = nn.BatchNorm1d(256)
         self.fc3 = nn.Linear(256, k * k)
-        # Start from an identity transform at initialization.
-        nn.init.constant_(self.fc3.weight, 0.0)
-        nn.init.constant_(self.fc3.bias, 0.0)
 
     def forward(self, input):
         bsize = input.size(0)
@@ -249,7 +196,6 @@ class PointNetFull(nn.Module):
     def __init__(self, classes=40):
         super().__init__()
         self.input_transform = Tnet(k=3)
-        self.feature_transform = Tnet(k=64)
 
         self.conv1 = nn.Conv1d(3, 64, 1)
         self.bn1 = nn.BatchNorm1d(64)
@@ -277,9 +223,6 @@ class PointNetFull(nn.Module):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
 
-        m64x64 = self.feature_transform(x)
-        x = torch.bmm(m64x64, x)
-
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
         x = F.relu(self.bn5(self.conv5(x)))
@@ -290,47 +233,35 @@ class PointNetFull(nn.Module):
         x = self.dropout(x)
         x = self.fc3(x)
         x = self.log_softmax(x)
-        return x, m3x3, m64x64
+        return x, m3x3
 
 
-def smoothed_nll_loss(outputs, labels, label_smoothing=0.0):
-    nll = F.nll_loss(outputs, labels, reduction='mean')
-    if label_smoothing <= 0.0:
-        return nll
-    smooth = -outputs.mean(dim=1).mean()
-    return (1.0 - label_smoothing) * nll + label_smoothing * smooth
-
-
-def basic_loss(outputs, labels, label_smoothing=0.0):
-    return smoothed_nll_loss(outputs, labels, label_smoothing=label_smoothing)
-
-
-def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001, label_smoothing=0.0):
+def basic_loss(outputs, labels):
+    criterion = torch.nn.NLLLoss()
     bsize = outputs.size(0)
-    reg = outputs.new_tensor(0.0)
+    return criterion(outputs, labels)
 
-    # In full PointNet, orthogonality regularization is primarily applied to
-    # the feature transform (64x64). Keep a 3x3 fallback for compatibility.
+
+def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001):
+    criterion = torch.nn.NLLLoss()
+    bsize = outputs.size(0)
+
+    id3x3 = torch.eye(3, device=outputs.device).repeat(bsize, 1, 1)
+    diff3x3 = id3x3 - torch.bmm(m3x3, m3x3.transpose(1, 2))
+    reg = torch.norm(diff3x3) / float(bsize)
+
     if m64x64 is not None:
-        id64x64 = torch.eye(64, device=outputs.device).unsqueeze(0).repeat(bsize, 1, 1)
+        id64x64 = torch.eye(64, device=outputs.device).repeat(bsize, 1, 1)
         diff64x64 = id64x64 - torch.bmm(m64x64, m64x64.transpose(1, 2))
         reg = reg + torch.norm(diff64x64) / float(bsize)
-    elif m3x3 is not None:
-        id3x3 = torch.eye(3, device=outputs.device).unsqueeze(0).repeat(bsize, 1, 1)
-        diff3x3 = id3x3 - torch.bmm(m3x3, m3x3.transpose(1, 2))
-        reg = reg + torch.norm(diff3x3) / float(bsize)
 
-    return smoothed_nll_loss(outputs, labels, label_smoothing=label_smoothing) + alpha * reg
+    return criterion(outputs, labels) + alpha * reg
 
 
-def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0,
-          label_smoothing=0.1, lr=0.001, weight_decay=1e-4, grad_clip=1.0):
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
-                                                           T_max=epochs,
-                                                           eta_min=lr * 0.01)
-    use_amp = (device.type == "cuda")
-    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
+def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0):
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                step_size=20, gamma=0.5)
     best_test_loss = float('inf')
     best_epoch = 0
     best_state = None
@@ -350,28 +281,21 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
         train_total = 0
         
         for i, data in enumerate(train_loader, 0):
-            inputs, labels = data['pointcloud'].to(device, non_blocking=True).float(), data['category'].to(device, non_blocking=True)
-            optimizer.zero_grad(set_to_none=True)
-            with torch.amp.autocast('cuda', enabled=use_amp):
-                model_out = model(inputs.transpose(1, 2))
-                if isinstance(model_out, tuple):
-                    if len(model_out) == 3:
-                        outputs, m3x3, m64x64 = model_out
-                    else:
-                        outputs, m3x3 = model_out
-                        m64x64 = None
-                    loss = pointnet_full_loss(outputs, labels, m3x3, m64x64,
-                                              label_smoothing=label_smoothing)
+            inputs, labels = data['pointcloud'].to(device).float(), data['category'].to(device)
+            optimizer.zero_grad()
+            model_out = model(inputs.transpose(1, 2))
+            if isinstance(model_out, tuple):
+                if len(model_out) == 3:
+                    outputs, m3x3, m64x64 = model_out
                 else:
-                    outputs = model_out
-                    loss = basic_loss(outputs, labels,
-                                      label_smoothing=label_smoothing)
-            scaler.scale(loss).backward()
-            if grad_clip is not None and grad_clip > 0.0:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            scaler.step(optimizer)
-            scaler.update()
+                    outputs, m3x3 = model_out
+                    m64x64 = None
+                loss = pointnet_full_loss(outputs, labels, m3x3, m64x64)
+            else:
+                outputs = model_out
+                loss = basic_loss(outputs, labels)
+            loss.backward()
+            optimizer.step()
             
             train_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
@@ -392,21 +316,18 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
         if test_loader:
             with torch.no_grad():
                 for data in test_loader:
-                    inputs, labels = data['pointcloud'].to(device, non_blocking=True).float(), data['category'].to(device, non_blocking=True)
-                    with torch.amp.autocast('cuda', enabled=use_amp):
-                        model_out = model(inputs.transpose(1, 2))
-                        if isinstance(model_out, tuple):
-                            if len(model_out) == 3:
-                                outputs, m3x3, m64x64 = model_out
-                            else:
-                                outputs, m3x3 = model_out
-                                m64x64 = None
-                            loss = pointnet_full_loss(outputs, labels, m3x3, m64x64,
-                                                      label_smoothing=0.0)
+                    inputs, labels = data['pointcloud'].to(device).float(), data['category'].to(device)
+                    model_out = model(inputs.transpose(1, 2))
+                    if isinstance(model_out, tuple):
+                        if len(model_out) == 3:
+                            outputs, m3x3, m64x64 = model_out
                         else:
-                            outputs = model_out
-                            loss = basic_loss(outputs, labels,
-                                              label_smoothing=0.0)
+                            outputs, m3x3 = model_out
+                            m64x64 = None
+                        loss = pointnet_full_loss(outputs, labels, m3x3, m64x64)
+                    else:
+                        outputs = model_out
+                        loss = basic_loss(outputs, labels)
                     test_loss += loss.item()
                     _, predicted = torch.max(outputs.data, 1)
                     test_total += labels.size(0)
@@ -477,14 +398,20 @@ def plot_training_history(history, save_path=None):
     plt.close()  
 
 
+def get_unique_path(path):
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    i = 2
+    while True:
+        candidate = f"{base}_{i}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        i += 1
+
+
 if __name__ == '__main__':
     t0 = time.time()
-    torch.backends.cudnn.benchmark = True
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        if hasattr(torch, "set_float32_matmul_precision"):
-            torch.set_float32_matmul_precision("high")
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     data_root = os.path.join(project_root, "data", "ModelNet40_PLY")
     train_ds = PointCloudData(data_root)
@@ -499,12 +426,10 @@ if __name__ == '__main__':
     print('Number of classes: ', len(train_ds.classes))
     print('Sample pointcloud shape: ', train_ds[0]['pointcloud'].size())
 
-    num_workers = min(16, os.cpu_count() or 1)
-    loader_kwargs = dict(num_workers=num_workers, pin_memory=torch.cuda.is_available())
-    if num_workers > 0:
-        loader_kwargs.update(dict(persistent_workers=True, prefetch_factor=4))
-    train_loader = DataLoader(dataset=train_ds, batch_size=128, shuffle=True, **loader_kwargs)
-    test_loader = DataLoader(dataset=test_ds, batch_size=128, shuffle=False, **loader_kwargs)
+    train_loader = DataLoader(dataset=train_ds, batch_size=32, shuffle=True,
+                              num_workers=12, pin_memory=True)
+    test_loader = DataLoader(dataset=test_ds, batch_size=32,
+                             num_workers=12, pin_memory=True)
 
     #model = PointMLP()
     # model = PointNetBasic()
@@ -519,7 +444,7 @@ if __name__ == '__main__':
     model.to(device)
 
     history, best_epoch, best_test_loss = train(model, device, train_loader, test_loader,
-                                                epochs=120, patience=30)
+                                                epochs=250, patience=30)
     print("Total time for training : ", time.time() - t0)
     print("Best validation test loss: %.3f at epoch %d" % (best_test_loss, best_epoch))
 
@@ -527,7 +452,7 @@ if __name__ == '__main__':
     model_path = f"{model_name}_modelnet40.pth"
     figures_dir = "figures"
     os.makedirs(figures_dir, exist_ok=True)
-    curves_path = os.path.join(figures_dir, f"{model_name}_training_curves.png")
+    curves_path = get_unique_path(os.path.join(figures_dir, f"{model_name}_training_curves.png"))
 
     # Save the trained model
     torch.save(model.state_dict(), model_path)

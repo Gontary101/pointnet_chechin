@@ -1,0 +1,21 @@
+{
+  "full_arch_run": {
+    "run_id": "r14_no_rot_ls_no_dropout_seed14",
+    "strict_test_acc": 89.50567260940032,
+    "strict_test_loss": 0.44214119555691267,
+    "best_epoch_by_loss": 82,
+    "epochs_ran": 107
+  },
+  "first_tnet_only_run": {
+    "run_id": "r16_first_tnet_only_r14_recipe_seed14",
+    "strict_test_acc": 89.54619124797406,
+    "strict_test_loss": 0.43841481402009197,
+    "best_epoch_by_loss": 83,
+    "epochs_ran": 108
+  },
+  "delta_first_minus_full": {
+    "acc_points": 0.040518638573743715,
+    "nll": -0.0037263815368207
+  },
+  "recipe_same_outside_arch": true
+}

@@ -1,0 +1,55 @@
+{
+  "run_id": "r17_first_tnet_only_baseline_recipe_seed0",
+  "run_name": "first-TNet-only architecture, baseline recipe (seed offset 0)",
+  "timestamp": "2026-02-17T13:14:15",
+  "device": "cuda:0",
+  "epochs_max": 120,
+  "epochs_ran": 77,
+  "best_epoch_by_loss": 47,
+  "best_test_loss": 0.4834323806059509,
+  "strict_train_loss": 0.14742689601146725,
+  "strict_train_acc": 94.82881235395713,
+  "strict_test_loss": 0.4834323806059509,
+  "strict_test_acc": 86.58833063209076,
+  "vote_test_loss": 0.4834323806059509,
+  "vote_test_acc": 86.58833063209076,
+  "vote_count": 1,
+  "vote_mode": "none",
+  "config": {
+    "id": "r17_first_tnet_only_baseline_recipe_seed0",
+    "name": "first-TNet-only architecture, baseline recipe (seed offset 0)",
+    "seed_offset": 0,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": true,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001,
+      "reg_input": true,
+      "reg_feature": true
+    },
+    "vote_eval": {
+      "vote_count": 1,
+      "vote_mode": "none"
+    }
+  },
+  "paths": {
+    "model": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_pointnetfull.pth",
+    "curves": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_training_curves.png",
+    "summary": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_summary.json",
+    "details": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_details.json",
+    "confusion_test": "/home/gana/Downloads/paul_chechin/figures/full_pointnet_runs/r17_first_tnet_only_baseline_recipe_seed0_confusion_test.png"
+  },
+  "elapsed_seconds": 1213.769603
+}
