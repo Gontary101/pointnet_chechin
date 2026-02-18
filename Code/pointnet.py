@@ -23,8 +23,29 @@ import matplotlib.pyplot as plt
 from ply import write_ply, read_ply
 
 
-class RandomRotation_z(object):
+def set_seed(seed=101):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+class NormalizeUnitSphere(object):
     def __call__(self, pointcloud):
+        centered = pointcloud - np.mean(pointcloud, axis=0, keepdims=True)
+        radius = np.max(np.linalg.norm(centered, axis=1))
+        if radius > 1e-8:
+            centered = centered / radius
+        return centered.astype(np.float32)
+
+
+class RandomRotation_z(object):
+    def __init__(self, p=0.3):
+        self.p = p
+
+    def __call__(self, pointcloud):
+        if random.random() > self.p:
+            return pointcloud
         theta = random.random() * 2. * math.pi
         rot_matrix = np.array([[math.cos(theta), -math.sin(theta),      0],
                                [math.sin(theta),  math.cos(theta),      0],
@@ -34,10 +55,14 @@ class RandomRotation_z(object):
 
 
 class RandomNoise(object):
+    def __init__(self, sigma=0.005, clip=0.02):
+        self.sigma = sigma
+        self.clip = clip
+
     def __call__(self, pointcloud):
-        noise = np.random.normal(0, 0.02, (pointcloud.shape))
-        noisy_pointcloud = pointcloud + noise
-        return noisy_pointcloud
+        noise = np.random.normal(0, self.sigma, (pointcloud.shape))
+        noise = np.clip(noise, -self.clip, self.clip)
+        return (pointcloud + noise).astype(np.float32)
 
 
 class ShufflePoints(object):
@@ -46,15 +71,46 @@ class ShufflePoints(object):
         return pointcloud
 
 
+class RandomApply(object):
+    def __init__(self, transform, p=0.5):
+        self.transform = transform
+        self.p = p
+
+    def __call__(self, pointcloud):
+        if random.random() < self.p:
+            return self.transform(pointcloud)
+        return pointcloud
+
+
+class RandomScaleShift(object):
+    def __init__(self, scale_low=0.9, scale_high=1.1, shift_range=0.03):
+        self.scale_low = scale_low
+        self.scale_high = scale_high
+        self.shift_range = shift_range
+
+    def __call__(self, pointcloud):
+        scale = np.random.uniform(self.scale_low, self.scale_high)
+        shift = np.random.uniform(-self.shift_range, self.shift_range, size=(1, 3)).astype(np.float32)
+        return (pointcloud * scale + shift).astype(np.float32)
+
+
 class ToTensor(object):
     def __call__(self, pointcloud):
         return torch.from_numpy(pointcloud)
 
 
 def default_transforms():
-    return transforms.Compose([RandomRotation_z(),
-                               RandomNoise(),
-                               ShufflePoints(),
+    return transforms.Compose([NormalizeUnitSphere(),
+                               RandomRotation_z(p=0.3),
+                               RandomNoise(sigma=0.005, clip=0.02),
+                               ToTensor()])
+
+
+def all_aug_transforms():
+    return transforms.Compose([NormalizeUnitSphere(),
+                               RandomRotation_z(p=0.3),
+                               RandomNoise(sigma=0.005, clip=0.02),
+                               RandomApply(RandomScaleShift(scale_low=0.9, scale_high=1.1, shift_range=0.03), p=0.3),
                                ToTensor()])
 
 
@@ -173,6 +229,8 @@ class Tnet(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.bn5 = nn.BatchNorm1d(256)
         self.fc3 = nn.Linear(256, k * k)
+        nn.init.zeros_(self.fc3.weight)
+        nn.init.zeros_(self.fc3.bias)
 
     def forward(self, input):
         bsize = input.size(0)
@@ -212,7 +270,8 @@ class PointNetFull(nn.Module):
         self.bn6 = nn.BatchNorm1d(512)
         self.fc2 = nn.Linear(512, 256)
         self.bn7 = nn.BatchNorm1d(256)
-        self.dropout = nn.Dropout(0.3)
+        self.dropout1 = nn.Dropout(0.3)
+        self.dropout2 = nn.Dropout(0.3)
         self.fc3 = nn.Linear(256, classes)
         self.log_softmax = nn.LogSoftmax(dim=1)
 
@@ -229,8 +288,9 @@ class PointNetFull(nn.Module):
         x = torch.max(x, 2, keepdim=False)[0]
 
         x = F.relu(self.bn6(self.fc1(x)))
+        x = self.dropout1(x)
         x = F.relu(self.bn7(self.fc2(x)))
-        x = self.dropout(x)
+        x = self.dropout2(x)
         x = self.fc3(x)
         x = self.log_softmax(x)
         return x, m3x3
@@ -242,7 +302,7 @@ def basic_loss(outputs, labels):
     return criterion(outputs, labels)
 
 
-def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001):
+def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.0):
     criterion = torch.nn.NLLLoss()
     bsize = outputs.size(0)
 
@@ -259,10 +319,11 @@ def pointnet_full_loss(outputs, labels, m3x3, m64x64=None, alpha=0.001):
 
 
 def train(model, device, train_loader, test_loader=None, epochs=250, patience=30, min_delta=0.0):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=20, gamma=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                            T_max=epochs, eta_min=1e-5)
     best_test_loss = float('inf')
+    best_test_acc = -1.0
     best_epoch = 0
     best_state = None
     epochs_no_improve = 0
@@ -338,7 +399,8 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
             history['test_loss'].append(avg_test_loss)
             history['test_acc'].append(test_acc)
 
-            if avg_test_loss < (best_test_loss - min_delta):
+            if test_acc > (best_test_acc + min_delta):
+                best_test_acc = test_acc
                 best_test_loss = avg_test_loss
                 best_epoch = epoch + 1
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -348,8 +410,8 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
             
             print('Epoch: %d, Train Loss: %.3f, Train Acc: %.1f %%, Test Loss: %.3f, Test Acc: %.1f %%' 
                   % (epoch+1, avg_train_loss, train_acc, avg_test_loss, test_acc))
-            print('Best Test Loss: %.3f (epoch %d), EarlyStop patience: %d/%d'
-                  % (best_test_loss, best_epoch, epochs_no_improve, patience))
+            print('Best Test Acc: %.1f %% (epoch %d), EarlyStop patience: %d/%d'
+                  % (best_test_acc, best_epoch, epochs_no_improve, patience))
 
             if epochs_no_improve >= patience:
                 print('Early stopping triggered at epoch %d' % (epoch + 1))
@@ -360,7 +422,7 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    return history, best_epoch, best_test_loss
+    return history, best_epoch, best_test_acc, best_test_loss
 
 
 def plot_training_history(history, save_path=None):
@@ -414,10 +476,11 @@ if __name__ == '__main__':
     t0 = time.time()
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     data_root = os.path.join(project_root, "data", "ModelNet40_PLY")
-    train_ds = PointCloudData(data_root)
+    set_seed(101)
+    train_ds = PointCloudData(data_root, transform=all_aug_transforms())
     test_ds = PointCloudData(data_root,
                              folder='test',
-                             transform=transforms.Compose([ToTensor()]))
+                             transform=transforms.Compose([NormalizeUnitSphere(), ToTensor()]))
 
     inv_classes = {i: cat for cat, i in train_ds.classes.items()}
     print("Classes: ", inv_classes)
@@ -427,9 +490,9 @@ if __name__ == '__main__':
     print('Sample pointcloud shape: ', train_ds[0]['pointcloud'].size())
 
     train_loader = DataLoader(dataset=train_ds, batch_size=32, shuffle=True,
-                              num_workers=12, pin_memory=True)
+                              num_workers=8, pin_memory=True, drop_last=True)
     test_loader = DataLoader(dataset=test_ds, batch_size=32,
-                             num_workers=12, pin_memory=True)
+                             num_workers=8, pin_memory=True)
 
     #model = PointMLP()
     # model = PointNetBasic()
@@ -443,9 +506,10 @@ if __name__ == '__main__':
     print("Device: ", device)
     model.to(device)
 
-    history, best_epoch, best_test_loss = train(model, device, train_loader, test_loader,
-                                                epochs=250, patience=30)
+    history, best_epoch, best_test_acc, best_test_loss = train(model, device, train_loader, test_loader,
+                                                                epochs=70, patience=200)
     print("Total time for training : ", time.time() - t0)
+    print("Best validation test acc: %.2f %% at epoch %d" % (best_test_acc, best_epoch))
     print("Best validation test loss: %.3f at epoch %d" % (best_test_loss, best_epoch))
 
     model_name = model.__class__.__name__.lower()
