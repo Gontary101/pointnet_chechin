@@ -342,27 +342,25 @@ In particular, single-run improvements below roughly 0.3--0.5 points are weak ev
 For completeness, approximate 95\% CI half-widths on accuracy are: G1 $\pm$1.27 (n=3), G2 $\pm$1.80 (n=2), G3 $\pm$5.15 (n=2); these large intervals (especially with n=2) show that confidence remains limited and motivate additional repeats for stronger claims.
 
 \subsection{Best required-architecture run (3x3 only)}
-Using an optimized recipe (run \texttt{r16}, still required architecture):
+Using an optimized training protocol (run \texttt{r16}):
 \begin{itemize}[leftmargin=*]
   \item \textbf{Test accuracy}: \textbf{89.55\%}
   \item \textbf{Test NLL}: 0.4384
 \end{itemize}
-This is a substantial gain over the strict baseline (86.59\%), showing that recipe choices can matter as much as architecture depth for this task.
-\paragraph{Why this matters for the required objectives.}
-The statement asks for a required architecture implementation; our results show that implementation correctness is necessary but not sufficient to obtain strong final scores. Training protocol choices materially affect final quality and must be documented to make comparisons fair.
+This is a substantial gain over the baseline (86.59\%) which shows that training choices can matter as much as architecture for this task.
 
 \subsection{Optional full PointNet with feature T-Net $64\times64$}
-Although not required by the statement, we also evaluated the full two-TNet variant and compared it fairly against the required architecture under the \textbf{same outside recipe}:
+We also evaluated the full 2 TNet variant and compared it against the 3*3 only architecture:
 \begin{itemize}[leftmargin=*]
-  \item Full (3x3 + 64x64, run \texttt{r14}): 89.51\%, NLL 0.4421
-  \item Required (3x3 only, run \texttt{r16}): 89.55\%, NLL 0.4384
+  \item (3x3 + 64x64, run \texttt{r14}): 89.51\%, NLL 0.4421
+  \item (3x3 only, run \texttt{r16}): 89.55\%, NLL 0.4384
 \end{itemize}
-Difference is very small in this experiment; the required 3x3-only model is slightly better here.
+Difference is very small in this experiment. the 3x3 only model is slightly better here.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{compare_arch_full64_vs_required.png}
-  \caption{Architecture comparison under same recipe: required 3x3-only vs full 3x3+64x64.}
+  \caption{Architecture comparison : 3x3-only vs full 3x3+64x64.}
 \label{fig:arch_compare_same_recipe}
 \end{figure}
 
@@ -379,7 +377,7 @@ Difference is very small in this experiment; the required 3x3-only model is slig
     \includegraphics[width=\linewidth]{confusion_pointnetfull_test_ftnet64.png}
     \caption{Full 64x64 confusion}
   \end{subfigure}
-  \caption{Optional full architecture (input + feature T-Net) analysis figures.}
+  \caption{full architecture (input + feature T-Net) figures.}
 \label{fig:full64_extra_1}
 \end{figure}
 
@@ -396,22 +394,12 @@ Difference is very small in this experiment; the required 3x3-only model is slig
     \includegraphics[width=\linewidth]{pointnetfull_training_curves_ftnet64.png}
     \caption{Full64 training curves}
   \end{subfigure}
-  \caption{Additional optional figures for the full 64x64 variant.}
+  \caption{Additional figures for the full 64x64 variant.}
 \label{fig:full64_extra_2}
 \end{figure}
 \noindent\textbf{Discussion.}
 Figures~\ref{fig:arch_compare_same_recipe}, \ref{fig:full64_extra_1}, and \ref{fig:full64_extra_2} support a key practical point: the full two-TNet variant is not automatically superior under all recipes. In our matched comparison, the required architecture is slightly better, which is why we keep required and optional conclusions clearly separated.
 
-\subsection{Optional checkpoint ensemble}
-Averaging predictions from three checkpoints (\texttt{r10}, \texttt{r14}, \texttt{r15}) reached:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{90.11\%} test accuracy, NLL 0.4068
-\end{itemize}
-(Source: \texttt{figures/full\_pointnet\_runs/reproduce\_90plus\_r10\_r14\_r15.json}).
-This is reported as an additional result, not as the required single-model baseline.
-\paragraph{Consequence.}
-The 90\%+ number is achievable with inference-time ensemble aggregation, but the cost is higher evaluation complexity and reduced simplicity/reproducibility compared to a single checkpoint.
-In other words, the ensemble result is best interpreted as an upper bound of the current checkpoint family, not as a replacement for the required single-model benchmark.
 
 \section{What helped and what did not}
 \begin{table}[H]
@@ -421,21 +409,15 @@ In other words, the ensemble result is best interpreted as an upper bound of the
 \toprule
 Helped (in our runs) & Did not consistently help (in our runs) \\
 \midrule
-Switch from PointMLP to PointNet-style shared MLP + max-pool & Overly aggressive or mismatched augmentation combinations \\
+Switch from PointMLP to PointNet shared MLP + max-pool & Overly aggressive or mismatched augmentation combinations \\
 Input T-Net 3x3 alignment (vs Basic) & Rotation-vote test-time augmentation on aligned data \\
-Careful recipe tuning (AdamW + cosine + clipping + smoothing) & Assuming full 64x64 feature T-Net is always better \\
-Moderate geometric augmentation on selected recipes & Single-change gains are often small and seed-sensitive \\
+tuning (AdamW + cosine + clipping + smoothing) & Assuming full 64x64 feature T-Net is always better \\
+A bit of geometric augmentation & Singlechange gains are small and sensitive to the chosen seed \\
 Checkpoint ensembling for final accuracy boost & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\section{Deliverables checklist}
-\begin{itemize}[leftmargin=*]
-  \item Report PDF (this document, to export as required naming format).
-  \item Code zip containing at least: \texttt{Code/pointnet.py}, \texttt{Code/ex2\_postprocess.py}, \texttt{Code/ex2\_full\_postprocess.py}, \texttt{Code/ex2\_full\_optimization\_runs.py}.
-  \item Figures and run summaries under \texttt{figures/} and \texttt{figures/full\_pointnet\_runs/}.
-\end{itemize}
 
 \section{Conclusion}
 All questions in the statement were addressed with quantitative results and comparisons.
