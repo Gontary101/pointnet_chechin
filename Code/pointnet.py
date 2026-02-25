@@ -16,7 +16,7 @@ from torchvision import transforms, utils
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend (no display needed)
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 
 # Import functions to read and write ply files
@@ -426,7 +426,6 @@ def train(model, device, train_loader, test_loader=None, epochs=250, patience=30
 
 
 def plot_training_history(history, save_path=None):
-    """Plot training and test loss/accuracy curves."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     
     epochs = range(1, len(history['train_loss']) + 1)
@@ -507,7 +506,7 @@ if __name__ == '__main__':
     model.to(device)
 
     history, best_epoch, best_test_acc, best_test_loss = train(model, device, train_loader, test_loader,
-                                                                epochs=70, patience=200)
+                                                                epochs=120, patience=40)
     print("Total time for training : ", time.time() - t0)
     print("Best validation test acc: %.2f %% at epoch %d" % (best_test_acc, best_epoch))
     print("Best validation test loss: %.3f at epoch %d" % (best_test_loss, best_epoch))
