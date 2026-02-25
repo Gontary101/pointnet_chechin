@@ -31,7 +31,7 @@
 
 \end{abstract}
 
-\section{Context and Protocol}
+\section{Context}
 \subsection{Project's objectives}
 
 \begin{itemize}[leftmargin=*]
@@ -52,7 +52,7 @@ We made an addition to the code, we monitor validation/test loss every epoch and
 This prevents over-training and allows us to iterate faster. The max number of epochs during the main runs is 120 epochs. (We also tried 250 epochs but it yielded close to no benefit)
 
 
-\section{Exercise 1 -- PointMLP}
+\section{Exercise 1 : PointMLP}
 \subsection*{Question 1: Test accuracy of PointMLP}
 Using the 3-layer PointMLP in \texttt{PointMLP(nn.Module)}, we obtained:
 \begin{itemize}[leftmargin=*]
@@ -71,11 +71,18 @@ The result is much lower than the pointnet models on ModelNet40 which we tried. 
   \caption{PointMLP architecture used in Exercise 1.}
 \label{fig:arch_mlp} 
 \end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{training_curves_mlp.png}
+  \caption{Exercise 1 (PointMLP): training and test loss/accuracy curves.}
+  \label{fig:mlp_curves}
+\end{figure}
 \noindent\textbf{Discussion.}
 Figure~\ref{fig:arch_mlp} We can see the limitation of the model where flattening actually destroys the point-set structure.This explains why the model underfits geometry and confuses many classes in the confusion matrix.
 Also as we can see from the figure, the model is underfitting even to the train data and it arrives to a plateau at around 28\% in the train set.
 
-\section{Exercise 2.1 -- Basic PointNet (without T-Nets)}
+\section{Exercise 2.1 : Basic PointNet (without T-Nets)}
 \subsection*{Question 1: Test accuracy of PointNetBasic}
 For \texttt{PointNetBasic(nn.Module)} (no T-Net), we arrived to these results:
 \begin{itemize}[leftmargin=*]
@@ -127,48 +134,41 @@ it keeps permutation invariance and captures stronger geometric features than th
 \noindent\textbf{Discussion.}
 Figures~\ref{fig:cmp_mlp_basic}, \ref{fig:cm_mlp_basic}, and \ref{fig:delta_basic_mlp} show that improvements are not uniform. Classes with stronger local geometric cues benefit more from shared pointwise features and max pooling than from flat MLP.
 From the confusion matrix we can see that the model classifies most classes correctly except for the wardrobe being classified as a dresser in multiple cases as well as some other classes.
-The jump from 22.97\% to 85.17\% is mostly an \emph{inductive-bias effect}: the architecture now matches the structure of point sets (shared weights per point + symmetric global aggregation).
+The jump from 22.97\% to 85.17\% is mostly because we now have a better architectural assumption: the architecture now matches the structure of point sets (shared weights per point + symmetric global aggregation).
 
-\section{Exercise 2.2 -- PointNet with input T-Net $3\times3$ (required architecture)}
-The statement requires a PointNet version with \textbf{only the first input T-Net} (3x3 alignment).
+\section{Exercise 2.2 : PointNet with input T-Net $3\times3$}
+We use the 3x3 only architecture with the first input T-Net.
+
 
 \subsection*{Question 1: Test accuracy with PointNet + input T-Net 3x3}
-Using the required architecture baseline recipe (run \texttt{r17}):
+
 \begin{itemize}[leftmargin=*]
   \item \textbf{Test accuracy}: \textbf{86.59\%}
   \item \textbf{Test NLL}: 0.4834
 \end{itemize}
-(Source: \texttt{figures/full\_pointnet\_runs/r17\_first\_tnet\_only\_baseline\_recipe\_seed0\_summary.json})
 
 \subsection*{Question 2: Comparison to PointNetBasic}
 Compared to PointNetBasic (85.17\%), adding input alignment via T-Net improves test accuracy to 86.59\% (+1.42 points).
-The NLL also improves (0.5264 $\rightarrow$ 0.4834), showing better calibrated predictions.
+The NLL also improves (0.5264 $\rightarrow$ 0.4834) which means we havebetter calibrated predictions.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{r17_first_tnet_only_baseline_recipe_seed0_training_curves.png}
-  \caption{Required architecture baseline run (3x3 T-Net only): training and test curves.}
+  \caption{(3x3 T-Net only): training and test curves.}
 \label{fig:r17_curves}
 \end{figure}
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.75\linewidth]{r17_first_tnet_only_baseline_recipe_seed0_confusion_test.png}
-  \caption{Required architecture baseline run: normalized test confusion matrix.}
+  \caption{(3x3 T-Net only): normalized test confusion matrix.}
 \label{fig:r17_cm}
 \end{figure}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.95\linewidth]{architecture_pointnetfull.png}
-  \caption{PointNet with input T-Net $3\times3$ (required architecture).}
-\label{fig:arch_required_full}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
   \includegraphics[width=0.9\linewidth]{comparison_mlp_basic_full.png}
-  \caption{PointMLP, PointNetBasic and PointNetFull comparison (single-model setting).}
+  \caption{PointMLP, PointNetBasic and PointNetFull comparison.}
 \label{fig:cmp_mlp_basic_full}
 \end{figure}
 
@@ -189,7 +189,7 @@ The NLL also improves (0.5264 $\rightarrow$ 0.4834), showing better calibrated p
 \label{fig:required_full_analysis}
 \end{figure}
 \noindent\textbf{Discussion.}
-The T-Net does not just increase capacity; it changes invariance. In Figures~\ref{fig:r17_curves} and \ref{fig:r17_cm}, we observe better alignment of train/test behavior than Basic PointNet and cleaner confusion diagonals for several classes, consistent with improved canonical alignment of input clouds.
+The T-Net increases the capacity and the invariance of the model. In Figures~\ref{fig:r17_curves} and \ref{fig:r17_cm}, we see that we have a better alignment of train/test behavior than Basic PointNet and a more diagonal confusion matrixfor several classes, consistent with improved canonical alignment of input clouds.
 From the baseline run \texttt{r17}, the gap at the best-loss epoch is moderate (train acc 92.23\% vs test acc 86.59\%, about 5.48 points), which indicates that the input alignment helps generalization but does not eliminate all class ambiguity.
 
 \section{Exercise 2.3 -- Data augmentation for 3D data}
