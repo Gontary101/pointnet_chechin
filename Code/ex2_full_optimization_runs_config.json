@@ -1,0 +1,454 @@
+[
+  {
+    "id": "r00_baseline120",
+    "name": "Baseline recipe (StepLR+Adam, simple aug)",
+    "seed_offset": 0,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001
+    }
+  },
+  {
+    "id": "r01_norm_sample",
+    "name": "Add normalize + random sample (same optimizer)",
+    "seed_offset": 1,
+    "augment": {
+      "normalize": true,
+      "random_sample": true,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001
+    }
+  },
+  {
+    "id": "r02_aug_only",
+    "name": "Add scale/translate/jitter/dropout (still Adam+StepLR)",
+    "seed_offset": 2,
+    "augment": {
+      "normalize": true,
+      "random_sample": true,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001
+    }
+  },
+  {
+    "id": "r03_opt_only",
+    "name": "Optimizer/scheduler/loss tune (AdamW+Cosine+LS+clip)",
+    "seed_offset": 3,
+    "augment": {
+      "normalize": true,
+      "random_sample": true,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001
+    }
+  },
+  {
+    "id": "r04_opt_plus_vote12",
+    "name": "Same as r03 + test-time voting (12 rotations)",
+    "seed_offset": 4,
+    "augment": {
+      "normalize": true,
+      "random_sample": true,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001
+    }
+  },
+  {
+    "id": "r05_nonorm_aug_opt",
+    "name": "No normalize/sample + strong aug + AdamW/Cosine/LS/clip",
+    "seed_offset": 5,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001
+    }
+  },
+  {
+    "id": "r06_nonorm_aug_opt_lowreg",
+    "name": "r05 with lower T-Net regularization alpha=5e-4",
+    "seed_offset": 6,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.0005
+    }
+  },
+  {
+    "id": "r07_nonorm_aug_opt_featreg_only",
+    "name": "r05 with regularization on 64x64 only (no 3x3 reg)",
+    "seed_offset": 7,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r08_nonorm_aug_opt_featreg_only_seed8",
+    "name": "r07 recipe, different seed (offset 8)",
+    "seed_offset": 8,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r09_nonorm_aug_opt_featreg_only_seed9",
+    "name": "r07 recipe, different seed (offset 9)",
+    "seed_offset": 9,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": true,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r10_no_rot_aug_opt_featreg_seed10",
+    "name": "r07 recipe, disable train-time Z-rotation (offset 10)",
+    "seed_offset": 10,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r11_no_rot_aug_opt_featreg_seed11",
+    "name": "r10 recipe, different seed (offset 11)",
+    "seed_offset": 11,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r12_no_rot_no_ls_seed12",
+    "name": "r10 recipe, label smoothing off (offset 12)",
+    "seed_offset": 12,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.0,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r13_no_rot_no_ls_no_dropout_seed13",
+    "name": "r12 recipe, no point dropout (offset 13)",
+    "seed_offset": 13,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.0,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r14_no_rot_ls_no_dropout_seed14",
+    "name": "r10 recipe, no point dropout (offset 14)",
+    "seed_offset": 14,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r15_no_rot_ls_no_dropout_seed15",
+    "name": "r14 recipe, different seed (offset 15)",
+    "seed_offset": 15,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r16_first_tnet_only_r14_recipe_seed14",
+    "name": "first-TNet-only architecture, same outside recipe as r14 (seed offset 14)",
+    "seed_offset": 14,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": false,
+      "scale_translate": true,
+      "jitter": true,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adamw",
+      "lr": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler": "cosine",
+      "eta_min": 1e-05,
+      "label_smoothing": 0.1,
+      "grad_clip": 1.0,
+      "treg_alpha": 0.001,
+      "reg_input": false,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r17_first_tnet_only_baseline_recipe_seed0",
+    "name": "first-TNet-only architecture, baseline recipe (seed offset 0)",
+    "seed_offset": 0,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": true,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": false
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001,
+      "reg_input": true,
+      "reg_feature": true
+    }
+  },
+  {
+    "id": "r18_first_tnet_only_baseline_plus_point_dropout_seed0",
+    "name": "first-TNet-only baseline + RandomPointDropout only (seed offset 0)",
+    "seed_offset": 0,
+    "augment": {
+      "normalize": false,
+      "random_sample": false,
+      "rotate_z": true,
+      "scale_translate": false,
+      "jitter": false,
+      "point_dropout": true
+    },
+    "optim": {
+      "optimizer": "adam",
+      "lr": 0.001,
+      "scheduler": "step",
+      "step_size": 20,
+      "gamma": 0.5,
+      "label_smoothing": 0.0,
+      "grad_clip": null,
+      "treg_alpha": 0.001,
+      "reg_input": true,
+      "reg_feature": true
+    }
+  }
+]

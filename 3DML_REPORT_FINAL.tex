@@ -26,33 +26,28 @@
 \maketitle
 
 \begin{abstract}
-  In this report, we implemented and evaluated pointMLP, PointNetBasic and PointNetFull on the ModelNet40\_PLY dataset and also evaluated data augmentation techniques and compared between different methods to get the best performance in ModelNet. 
-  With our latest single-model adjustments, the best checkpoint reaches \textbf{89.91\%} test accuracy (no ensemble, no fine-tuning). We then also tried the full architecture of PointNetFull with the feature T-Net $64\times64$.
+  In this report, we implemented and evaluated pointMLP, PointNetBasic and PointNetFull on the 40 class dataset and also evaluated data augmentation techniques and compared between different methods to get the best performance in ModelNet. In the final iteration, we arrived to a score of 90\% accuracy. We also tried the full PointNet architecture with the $64\times64$ T-net which didn't add any gains.
+
 
 \end{abstract}
 
-\section{Context and Protocol}
-\subsection{Project's objectives}
+\section{Context}
+\subsection{objectives}
 
 \begin{itemize}[leftmargin=*]
-  \item implement and evaluate PointMLP;
+  \item implement and evaluate PointMLP
   \item implement and evaluate PointNetBasic (without T-Net);
   \item implement and evaluate PointNet with input T-Net $3\times3$;
   \item propose one additional 3D data augmentation and compare with and without.
 \end{itemize}
 
-We follow the assignment structure and then we add an additional section for additional experiments we ran.
-
-\subsection{Dataset and task}
-We use \textbf{ModelNet40\_PLY} (40 classes) for object classification from point clouds.
-
+\textbf{Note: } We responded to the assignment's questions and then added an other section for more experiments (Changed the optimizer, removed z rotation etc). The final additions (normalize, jitter, shift/scale, random point dropout) are inspired by ~\cite{pointnet_pytorch}.
 
 \subsection{Early stopping}
-We made an addition to the code, we monitor validation/test loss every epoch and keep the best checkpoint (lowest test loss). Training stops when no improvement is observed for a fixed patience window (30 epochs).
-This prevents over-training and allows us to iterate faster. The max number of epochs during the main runs is 120 epochs. (We also tried 250 epochs but it yielded close to no benefit)
+We made an addition to the code, we monitor validation/test loss every epoch and keep the best checkpoint (lowest test loss). Training stops when no improvement is observed for a 30 epochs. This helps prevent over-training. The maximum number of epochs in our experiments was 120 epochs. We tried 250 epochs but it gave almost no benefit.
 
 
-\section{Exercise 1 -- PointMLP}
+\section{Exercise 1 : PointMLP}
 \subsection*{Question 1: Test accuracy of PointMLP}
 Using the 3-layer PointMLP in \texttt{PointMLP(nn.Module)}, we obtained:
 \begin{itemize}[leftmargin=*]
@@ -71,11 +66,18 @@ The result is much lower than the pointnet models on ModelNet40 which we tried. 
   \caption{PointMLP architecture used in Exercise 1.}
 \label{fig:arch_mlp} 
 \end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\linewidth]{training_curves.png}
+  \caption{Loss of PointMLP}
+\label{fig:arch_mlp} 
+\end{figure}
 \noindent\textbf{Discussion.}
 Figure~\ref{fig:arch_mlp} We can see the limitation of the model where flattening actually destroys the point-set structure.This explains why the model underfits geometry and confuses many classes in the confusion matrix.
-Also as we can see from the figure, the model is underfitting even to the train data and it arrives to a plateau at around 28\% in the train set.
+Also as we can see from the figure 2, the model is underfitting even to the train data and it arrives to a plateau at around 28\% in the train set.
 
-\section{Exercise 2.1 -- Basic PointNet (without T-Nets)}
+\section{Exercise 2.1 : Basic PointNet}
 \subsection*{Question 1: Test accuracy of PointNetBasic}
 For \texttt{PointNetBasic(nn.Module)} (no T-Net), we arrived to these results:
 \begin{itemize}[leftmargin=*]
@@ -87,12 +89,6 @@ For \texttt{PointNetBasic(nn.Module)} (no T-Net), we arrived to these results:
 This architecture outperforms the pointMLP by a big margin because it uses shared MLP over points and a symmetric max-pooling aggregation.
 it keeps permutation invariance and captures stronger geometric features than the flattened MLP.
 
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.95\linewidth]{architecture_pointnetbasic.png}
-  \caption{Basic PointNet architecture (without T-Net).}
-\label{fig:arch_basic}
-\end{figure}
 
 \begin{figure}[H]
   \centering
@@ -103,7 +99,7 @@ it keeps permutation invariance and captures stronger geometric features than th
 
 \begin{figure}[H]
   \centering
-  \begin{subfigure}{0.48\linewidth}
+  \begin{subfigure}{0.44\linewidth}
     \centering
     \includegraphics[width=\linewidth]{confusion_pointmlp_test.png}
     \caption{PointMLP confusion matrix}
@@ -114,55 +110,40 @@ it keeps permutation invariance and captures stronger geometric features than th
     \includegraphics[width=\linewidth]{confusion_pointnetbasic_test.png}
     \caption{PointNetBasic confusion matrix}
   \end{subfigure}
-  \caption{Exercise 1/2.1 confusion matrices (normalized rows).}
+  \caption{Exercise 1/2.1 confusion matrices}
 \label{fig:cm_mlp_basic}
 \end{figure}
 
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.85\linewidth]{per_class_delta_pointnetbasic_minus_mlp.png}
-  \caption{Top per-class accuracy delta: PointNetBasic minus PointMLP (test set).}
-\label{fig:delta_basic_mlp}
-\end{figure}
-\noindent\textbf{Discussion.}
-Figures~\ref{fig:cmp_mlp_basic}, \ref{fig:cm_mlp_basic}, and \ref{fig:delta_basic_mlp} show that improvements are not uniform. Classes with stronger local geometric cues benefit more from shared pointwise features and max pooling than from flat MLP.
-From the confusion matrix we can see that the model classifies most classes correctly except for the wardrobe being classified as a dresser in multiple cases as well as some other classes.
-The jump from 22.97\% to 85.17\% is mostly an \emph{inductive-bias effect}: the architecture now matches the structure of point sets (shared weights per point + symmetric global aggregation).
 
-\section{Exercise 2.2 -- PointNet with input T-Net $3\times3$ (required architecture)}
-The statement requires a PointNet version with \textbf{only the first input T-Net} (3x3 alignment).
+\noindent\textbf{Discussion.}
+Figures~\ref{fig:cmp_mlp_basic}, \ref{fig:cm_mlp_basic}, and \ref{fig:delta_basic_mlp} show that improvements are not uniform. Classes with more geometric shapes (example: Car, toilet, laptop) benefit more from shared pointwise features and max pooling than from flat MLP.
+From the confusion matrix we can see that the model classifies most classes correctly except for the wardrobe being classified as a dresser in multiple cases as well as some other classes.
+The jump from 22.97\% to 85.17\% is mostly an inductive bias effect where the architecture better explains the training data shapes.
+
+\section{Exercise 2.2 : PointNet with input T-Net $3\times3$}
 
 \subsection*{Question 1: Test accuracy with PointNet + input T-Net 3x3}
-Using the required architecture baseline recipe (run \texttt{r17}):
+
 \begin{itemize}[leftmargin=*]
   \item \textbf{Test accuracy}: \textbf{86.59\%}
   \item \textbf{Test NLL}: 0.4834
 \end{itemize}
-(Source: \texttt{figures/full\_pointnet\_runs/r17\_first\_tnet\_only\_baseline\_recipe\_seed0\_summary.json})
 
 \subsection*{Question 2: Comparison to PointNetBasic}
-Compared to PointNetBasic (85.17\%), adding input alignment via T-Net improves test accuracy to 86.59\% (+1.42 points).
-The NLL also improves (0.5264 $\rightarrow$ 0.4834), showing better calibrated predictions.
+Compared to PointNetBasic (85.17\%), adding input alignment by T-Net improves test accuracy to 86.59\%.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\linewidth]{r17_first_tnet_only_baseline_recipe_seed0_training_curves.png}
-  \caption{Required architecture baseline run (3x3 T-Net only): training and test curves.}
+  \caption{(3x3 T-Net only): training and test curves.}
 \label{fig:r17_curves}
 \end{figure}
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.75\linewidth]{r17_first_tnet_only_baseline_recipe_seed0_confusion_test.png}
-  \caption{Required architecture baseline run: normalized test confusion matrix.}
+  \caption{normalized test confusion matrix in BasicPointNet}
 \label{fig:r17_cm}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.95\linewidth]{architecture_pointnetfull.png}
-  \caption{PointNet with input T-Net $3\times3$ (required architecture).}
-\label{fig:arch_required_full}
 \end{figure}
 
 \begin{figure}[H]
@@ -189,32 +170,27 @@ The NLL also improves (0.5264 $\rightarrow$ 0.4834), showing better calibrated p
 \label{fig:required_full_analysis}
 \end{figure}
 \noindent\textbf{Discussion.}
-The T-Net does not just increase capacity; it changes invariance. In Figures~\ref{fig:r17_curves} and \ref{fig:r17_cm}, we observe better alignment of train/test behavior than Basic PointNet and cleaner confusion diagonals for several classes, consistent with improved canonical alignment of input clouds.
-From the baseline run \texttt{r17}, the gap at the best-loss epoch is moderate (train acc 92.23\% vs test acc 86.59\%, about 5.48 points), which indicates that the input alignment helps generalization but does not eliminate all class ambiguity.
+The added T-net increases capacity and changes invariance. We can see from the figures ~\ref{fig:r17_curves} and \ref{fig:r17_cm} that we have better confusion matrices diagonals for most classes (The clouds are more aligned).
+When we compare the train accuracy with the test accuracy we can see only a 5.48 difference which means that we have better generalization but we still don't remove all class ambiguities especially with Sink, bathtub and door which gave worse performance than basic pointnet.
 
-\section{Exercise 2.3 -- Data augmentation for 3D data}
+\section{Exercise 2.3 : Data augmentation for 3D data}
 \subsection*{Question 1: Proposed augmentation}
 We propose \textbf{RandomPointDropout}:
 for each training point cloud, a random subset of points is replaced/dropped.
 This simulates partial observations (occlusion/sparse scans) and reduces over-reliance on a few dominant points selected by max pooling.
 
-\subsection*{Question 2: With vs without augmentation (controlled comparison)}
-We run a strict ablation on the required architecture baseline:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Without} RandomPointDropout: run \texttt{r17}
-  \item \textbf{With} RandomPointDropout only: run \texttt{r18}
-\end{itemize}
-All other settings are identical (same optimizer, scheduler, epochs, seed offset, and architecture).
+\subsection*{Question 2: With vs without augmentation}
+We run a comparison between : With vs Without the data augmentation
 
 \begin{table}[H]
 \centering
-\caption{Controlled RandomPointDropout ablation on required architecture baseline}
+\caption{comparison between the two runs}
 \begin{tabular}{lcc}
 \toprule
 Setting & Test Acc. (\%) & Test NLL \\
 \midrule
-Baseline (no point dropout, \texttt{r17}) & 86.59 & 0.4834 \\
-+ RandomPointDropout (\texttt{r18}) & 86.63 & 0.4710 \\
+Baseline (no point dropout) & 86.59 & 0.4834 \\
++ RandomPointDropout & 86.63 & 0.4710 \\
 \midrule
 Delta (dropout - baseline) & +0.04 & -0.0124 \\
 \bottomrule
@@ -222,8 +198,7 @@ Delta (dropout - baseline) & +0.04 & -0.0124 \\
 \end{table}
 
 \textbf{Interpretation.}
-For this baseline recipe, RandomPointDropout gives a small accuracy gain and a clearer NLL improvement.
-It helps robustness but is not a large standalone gain.
+With this chosen data augmentation, we hardly see any improvement. It helps a bit in robustness but doesn't give a big gain.
 
 \begin{figure}[H]
   \centering
@@ -232,45 +207,13 @@ It helps robustness but is not a large standalone gain.
 \label{fig:ablation_dropout_bar}
 \end{figure}
 
-\begin{figure}[H]
-  \centering
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{r17_first_tnet_only_baseline_recipe_seed0_training_curves.png}
-    \caption{Without RandomPointDropout (r17)}
-  \end{subfigure}
-  \hfill
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{r18_first_tnet_only_baseline_plus_point_dropout_seed0_training_curves.png}
-    \caption{With RandomPointDropout (r18)}
-  \end{subfigure}
-  \caption{Training curves for controlled augmentation ablation runs.}
-\label{fig:ablation_dropout_curves}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{r17_first_tnet_only_baseline_recipe_seed0_confusion_test.png}
-    \caption{r17 confusion}
-  \end{subfigure}
-  \hfill
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{r18_first_tnet_only_baseline_plus_point_dropout_seed0_confusion_test.png}
-    \caption{r18 confusion}
-  \end{subfigure}
-  \caption{Confusion matrices for without/with RandomPointDropout.}
-\label{fig:ablation_dropout_cm}
-\end{figure}
 \noindent\textbf{Discussion.}
-The gain is subtle in accuracy but visible in NLL (Table 1 and Figure~\ref{fig:ablation_dropout_bar}). This indicates improved confidence calibration even when top-1 class decisions change only slightly. Figures~\ref{fig:ablation_dropout_curves} and \ref{fig:ablation_dropout_cm} show that dropout injects harder training conditions while preserving overall convergence.
-At the class level, the effect is heterogeneous: some classes improve strongly while others degrade, and the global top-1 gain remains small.
+The gain is minimal with this data augmentation. At the classes, the effect is heterogeneous: some classes improve strongly while others degrade. 
+
+
 \begin{table}[H]
 \centering
-\caption{Largest per-class changes from RandomPointDropout (\texttt{r18} - \texttt{r17}, percentage points)}
+\caption{Largest per-class changes from RandomPointDropout}
 \begin{tabular}{lcc}
 \toprule
 Class & $\Delta$ Acc. (pp) & Comment \\
@@ -285,245 +228,124 @@ tv\_stand & +6.0 & moderate improvement \\
 \end{tabular}
 \end{table}
 
-Two implications follow. First, RandomPointDropout primarily acts as a robustness regularizer, improving average calibration (NLL) more reliably than top-1 accuracy. Second, because some low-support classes (20 samples/class in test split) move by large steps, conclusions should be based on both global and class-level views.
-
-\section{Additional experiments (not required, added by us)}
-\subsection{Optimization and augmentation study outside architecture changes}
-We explored minimal recipe changes (optimizer, LR schedule, regularization, and augmentation variants) while tracking strict test metrics.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.95\linewidth]{selected_runs_acc_nll.png}
-  \caption{Selected optimization trajectory: what helped and what hurt.}
-\label{fig:selected_trajectory}
-\end{figure}
-\subsection{Detailed discussion of selected runs (Figure~\ref{fig:selected_trajectory})}
-Figure~\ref{fig:selected_trajectory} summarizes the trajectory; below we explain each key transition and its consequence.
-\begin{enumerate}[leftmargin=*]
-  \item \textbf{r00 $\rightarrow$ r01 (add normalize + random sample):} accuracy dropped (86.10 $\rightarrow$ 85.41) while NLL improved slightly. This means the change modified confidence structure more than ranking quality. Practical consequence: this preprocessing is not sufficient alone and must be coupled with stronger augmentation/optimization.
-  \item \textbf{r01 $\rightarrow$ r02 (add scale/translate/jitter/point-dropout):} clear gain in both metrics (+1.34 points, NLL -0.0622). This confirms that geometric perturbations provide useful invariances for point-cloud generalization.
-  \item \textbf{r02 $\rightarrow$ r03 (switch to AdamW + cosine + smoothing + clipping):} accuracy increased only slightly (+0.28), but NLL worsened (+0.0194). Interpretation: optimization/loss changes can improve decision boundary ranking but may initially hurt calibration unless the rest of the recipe is adjusted.
-  \item \textbf{r03/r05/r06/r07 (regularization placement/intensity study):} removing normalize/sample (r05) helped a little; lowering transform-regularization weight too much (r06) hurt both metrics; changing the regularization structure (r07) recovered performance. Consequence: transform regularization is sensitive and cannot be tuned by intuition alone.
-  \item \textbf{r07, r08, r09 (seed analysis):} same recipe across seeds spans roughly 86.99--88.01. This spread is large enough to change conclusions if only one seed is reported. We therefore treat single-seed improvements below ~0.5 points as weak evidence.
-  \item \textbf{r09 $\rightarrow$ r10 (disable train-time z-rotation):} accuracy improved to 88.53. This supports the hypothesis that for aligned ModelNet40, extra rotation augmentation may conflict with class-discriminative orientation cues.
-  \item \textbf{r10/r11/r12/r13/r14/r15 (smoothing/dropout interplay):} removing label smoothing (r12) reduced accuracy; removing point-dropout under no-smoothing (r13) reduced accuracy further; restoring smoothing without dropout (r14) produced the best full-64 single run (89.51). Consequence: these components interact nonlinearly; isolated conclusions can be misleading.
-  \item \textbf{r14 $\rightarrow$ r16 (architecture swap, fixed recipe):} required 3x3-only architecture slightly outperformed full 3x3+64x64 (+0.04 points, lower NLL). This shows that increased architectural complexity is not automatically beneficial under a fixed training protocol.
-  \item \textbf{r17 vs r18 (controlled required-architecture baseline):} adding only RandomPointDropout yields +0.04 points and lower NLL by 0.0124. The effect is small globally but directionally consistent with robustness regularization.
-\end{enumerate}
-
-Overall consequence: no single trick explains the final performance; improvements come from coherent combinations, careful control experiments, and avoiding changes that conflict with dataset alignment assumptions.
-\paragraph{Trajectory-level synthesis.}
-Three meta-observations emerge from Figure~\ref{fig:selected_trajectory}. (i) The largest jumps come from recipe \emph{combinations} rather than isolated toggles. (ii) Seed variance is material, so repeated runs are necessary before claiming gains. (iii) NLL and accuracy do not always move together; keeping both metrics prevents over-interpreting noisy top-1 differences.
-\subsection{Confidence and variance reporting}
-To quantify stability, we grouped runs that share the same recipe and architecture but differ by seed.
-\begin{table}[H]
-\centering
-\caption{Seed-variance summary on comparable run groups}
-\begin{tabular}{lcc}
-\toprule
-Group & Strict test accuracy (\%) & Strict test NLL \\
-\midrule
-G1: \texttt{r07/r08/r09} (n=3) & $87.55 \pm 0.51$ [86.99, 88.01] & $0.485 \pm 0.024$ [0.468, 0.512] \\
-G2: \texttt{r10/r11} (n=2) & $88.39 \pm 0.20$ [88.25, 88.53] & $0.468 \pm 0.011$ [0.460, 0.475] \\
-G3: \texttt{r14/r15} (n=2) & $89.10 \pm 0.57$ [88.70, 89.51] & $0.450 \pm 0.012$ [0.442, 0.459] \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.95\linewidth]{seed_variance_by_recipe.png}
-  \caption{Seed variance by recipe group (points are individual runs; marker is mean with $\pm$std).}
-\end{figure}
-
-\noindent\textbf{Confidence discussion.}
-The standard deviations are non-negligible relative to many incremental gains observed in ablations.
-In particular, single-run improvements below roughly 0.3--0.5 points are weak evidence without repetition.
-For completeness, approximate 95\% CI half-widths on accuracy are: G1 $\pm$1.27 (n=3), G2 $\pm$1.80 (n=2), G3 $\pm$5.15 (n=2); these large intervals (especially with n=2) show that confidence remains limited and motivate additional repeats for stronger claims.
-
-\subsection{Best required-architecture run (3x3 only)}
-Using an optimized training protocol (run \texttt{r16}):
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Test accuracy}: \textbf{89.55\%}
-  \item \textbf{Test NLL}: 0.4384
-\end{itemize}
-This is a substantial gain over the baseline (86.59\%) which shows that training choices can matter as much as architecture for this task.
-
-\subsection{Optional full PointNet with feature T-Net $64\times64$}
-We also evaluated the full 2 TNet variant and compared it against the 3*3 only architecture:
-\begin{itemize}[leftmargin=*]
-  \item (3x3 + 64x64, run \texttt{r14}): 89.51\%, NLL 0.4421
-  \item (3x3 only, run \texttt{r16}): 89.55\%, NLL 0.4384
-\end{itemize}
-Difference is very small in this experiment. the 3x3 only model is slightly better here.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.95\linewidth]{compare_arch_full64_vs_required.png}
-  \caption{Architecture comparison : 3x3-only vs full 3x3+64x64.}
-\label{fig:arch_compare_same_recipe}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{comparison_mlp_basic_full_ftnet64.png}
-    \caption{Comparison including full 64x64 run}
-  \end{subfigure}
-  \hfill
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{confusion_pointnetfull_test_ftnet64.png}
-    \caption{Full 64x64 confusion}
-  \end{subfigure}
-  \caption{full architecture (input + feature T-Net) figures.}
-\label{fig:full64_extra_1}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{per_class_delta_pointnetfull_minus_basic_ftnet64.png}
-    \caption{Per-class delta (full64 - basic)}
-  \end{subfigure}
-  \hfill
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{pointnetfull_training_curves_ftnet64.png}
-    \caption{Full64 training curves}
-  \end{subfigure}
-  \caption{Additional figures for the full 64x64 variant.}
-\label{fig:full64_extra_2}
-\end{figure}
-\noindent\textbf{Discussion.}
-Figures~\ref{fig:arch_compare_same_recipe}, \ref{fig:full64_extra_1}, and \ref{fig:full64_extra_2} support a key practical point: the full two-TNet variant is not automatically superior under all recipes. In our matched comparison, the required architecture is slightly better, which is why we keep required and optional conclusions clearly separated.
+\noindent\textbf{Note: } We added new data augmentations which can be found in the best training run in the best result model section ~\ref{final_run}. With the new data augmentations, we reached a score of 90\%. 
 
 
-\section{Final single-model adjustments (latest version)}
-\subsection{Architecture kept fixed}
-For this final stage, we kept a \textbf{single model only}: \texttt{PointNetFull} with one input T-Net ($3\times3$), without feature T-Net ($64\times64$), and without ensemble inference.
+\section{Best result model (data augmentations and architectural changes)}
+\label{final_run}
+\subsection{Architecture}
+During this final run, we combine the learnings from the additional esperiments section ~\ref{additional_runs}, we use the input only T net PointNet as a baseline.
 The classifier head uses \textbf{double dropout}:
 \begin{itemize}[leftmargin=*]
   \item \texttt{Dropout(0.3)} after \texttt{fc1} + BN + ReLU,
   \item \texttt{Dropout(0.3)} after \texttt{fc2} + BN + ReLU.
 \end{itemize}
-In compact form:
-\[
-h_1 = \mathrm{Dropout}_{0.3}\!\left(\mathrm{ReLU}(\mathrm{BN}(W_1 g))\right),\quad
-h_2 = \mathrm{Dropout}_{0.3}\!\left(\mathrm{ReLU}(\mathrm{BN}(W_2 h_1))\right),\quad
-\hat{y} = W_3 h_2.
-\]
-This reduces co-adaptation in both FC blocks and made training more stable in our runs.
 
-\subsection{Data augmentation used in the final recipe}
-The train-time pipeline combines the original PointNet-style perturbations with our additional mild scale-shift:
+This made the training more stable.
+
+\subsection{Data augmentation}
+
+Compared to the FullPointNet we used previously which uses a classifier dropout of 0.3, random z-rotation, point shuffle and gaussian noise, this final architecture adds an other dropout (one after fc1 and the other after FC2). For data augmentation, we add unit sphere normalization (for each point cloud, we center it at the origin and then rescale it so that the furthest point is at a distance of 1), changing z-rotation to be probabilistic with a probability of 0.3 and a smaller noise ($\sigma$ being 0.005) and a smaller clip of $\pm0.02$. Finally, we add RandomScaleShift 
 \[
 \tilde{\mathbf{x}}_i = s\,R_z(\theta)\,\mathbf{x}_i + \mathbf{t} + \boldsymbol{\epsilon}_i.
 \]
-We used:
+
+with $s\in[0.9,1.1]$ which is the random scale factor and $t\in[-0.03,0.03]^3$ which is the random translation vector and a probability of 0.3.
+
+
+
+For this model, we took inspiration from PointNet articles:  \cite{pointnet,revisit_pointcloud}.
+
+
+\textbf{Note:} we use a fixed seed : seed=101, Adam (lr $=10^{-3}$, weight decay $=5\times10^{-5}$), cosine LR scheduler (min lr $=10^{-5}$), batch size 32, workers 8 and a train test split of 80-20\%
+
+
+With these settings, we reach the best performance in the test set at epoch 90 with 90\% of accuracy.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{pointnetfull_training_curves_2.png}
+  \caption{Training and validation loss for the last run, 90\% accuracy}
+\label{fig:last_best_run}
+\end{figure}
+
+\subsection{Discussion: }
+Using this model gave the best results. This is because we combined different additions from normalization and small geometric perturbations which helped robustness without destroying class geometry, double dropout that regularized the classifier head better than only one dropout and avoided overfitting. Scale shift improved generalization where features won't be dominated by coordinate magnitude differences.
+
+
+
+\section{Additional experiments}
+\label{additional_runs}
+\subsection{Optimization and augmentation study outside architecture changes}
+We added multiple runs while changing one thing at a time to find which architectural change gives the best results. 
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{selected_runs_acc_nll.png}
+  \caption{what helped and what didn't in the runs}
+\label{fig:selected_trajectory}
+\end{figure}
+\subsection{Discussion of the runs (Figure~\ref{fig:selected_trajectory})}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{adding normalization + random sample:} Adding normalization and random sample reduced the accuracy from 86.10 to 85.41. This change isn't useful.
+  \item \textbf{r01 $\rightarrow$ r02 (add scale/translate/jitter/point-dropout):} Adding scale which multiplies the XYZ coordinates by a random scalar, translate which adds a random shift vector with each axis (in order for the object to not be always centered in the same way), random jitter adds per point gaussian noise to reduce overfitting to the coordinates, finally, point dropout drops some points to push the model to learn global shape instead of some key points. This gave a +1.34 gain in accuracy which means that geometric perturbations add better generalization.
+  \item \textbf{r02 $\rightarrow$ r03 (switch to AdamW + cosine + smoothing + clipping):} The accuracy didn't see a big gain with these changes (only +0.28).
+  \item \textbf{disable train-time z-rotation:} accuracy improved to 88.53. This supports the hypothesis that for aligned ModelNet40, extra rotation augmentation may conflict with class-discriminative orientation cues.
+  With this change, the accuracy improved to over 88\% which means that more rotation augmentation can hurt when the discremenating factor between classes is orientation.
+
+
+\end{enumerate}
+
+Conclusion: Changing only one thing doesn't add a lot of gains. But when combining multiple gains, we can see a substancial gain as we'll see in the final architecture.
+
+\textbf{Note: } The code for these runs is in ex2\_full\_optimization\_runs.py 
+
+\subsection{PointNet with feature T-Net $64\times64$}
+Using the combined gains with the run r16 trained with AdamW (lr=1e-3, weight\_decay=1e-4), cosine LR scheduling (eta\_min=1e-5), label smoothing (0.1), gradient clipping (1.0), and augmentation set to rotate\_z=False scale\_translate=True, jitter=True, point\_dropout=False (with normalize=False and random\_sample=False), and it ran up to 120 epochs with the best checkpoint reached 89.55\% test accuracy. This is then used to compare between having the input only T net (3*3) and the Tnet with 64*64+3*3 where we arrived at the same result (89.51\%): 
+
 \begin{itemize}[leftmargin=*]
-  \item unit-sphere normalization (\texttt{NormalizeUnitSphere});
-  \item random z-rotation with probability $p=0.3$;
-  \item Gaussian jitter $\epsilon \sim \mathcal{N}(0,\sigma^2)$ with $\sigma=0.005$, clipped to $\pm 0.02$;
-  \item our additional \texttt{RandomScaleShift}: $s \sim \mathcal{U}(0.9,1.1)$ and $\mathbf{t}\sim \mathcal{U}([-0.03,0.03]^3)$, applied with probability $p=0.3$.
+  \item (3x3 + 64x64): 89.51\%, NLL 0.4421
+  \item (3x3 only): 89.55\%, NLL 0.4384
 \end{itemize}
-At test time, we keep only deterministic preprocessing (normalization + tensor conversion), which keeps evaluation fair and reproducible.
-These choices follow standard point-cloud augmentation practice and are consistent with prior PointNet recipes \cite{pointnet,revisit_pointcloud}.
+Difference is very small in this comparison.
 
-\subsection{How we reached the best single-model score}
-We fixed all settings and changed \textbf{only the epoch budget}:
-seed=101, Adam (lr $=10^{-3}$, weight decay $=5\times10^{-5}$), cosine LR scheduler (min lr $=10^{-5}$), batch size 32, workers 8, same train/test split.
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.48\linewidth]{figures/64vs3.png}
+  \caption{3x3-only vs full 3x3+64x64.}
+\label{fig:arch_compare_same_recipe}
+\end{figure}
 
-\begin{table}[H]
-\centering
-\caption{Epoch-only sweep with identical settings (single-model PointNetFull)}
-\begin{tabular}{lc}
-\toprule
-Epoch budget & Best test accuracy (\%) \\
-\midrule
-45 & 89.38 \\
-60 & 89.42 \\
-70 & \textbf{89.91} \\
-75 & 89.79 \\
-90 & 89.55 \\
-100 & 89.38 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-Best configuration in this branch:
-\begin{itemize}[leftmargin=*]
-  \item \textbf{single model} PointNetFull (one T-Net only),
-  \item \textbf{double dropout} (0.3 / 0.3),
-  \item augmentation pipeline above,
-  \item \textbf{70 epochs} total, with best checkpoint reached at epoch 58,
-  \item final best test accuracy: \textbf{89.91\%}.
-\end{itemize}
+\noindent\textbf{Discussion.}
+From the figure above and the results we got in this comparison, the full T net and the 3*3 input only T net pointNet achieved almost exactly the same result which means the added complexity isn't always useful.
 
-\subsection{Why this worked better}
-The gain came from a coherent combination:
-\begin{itemize}[leftmargin=*]
-  \item normalization + mild geometric perturbations improved robustness without destroying class geometry;
-  \item double dropout regularized the classifier head more effectively than a single dropout point;
-  \item 70 epochs gave a better optimization/overfitting balance than shorter or longer runs in our controlled sweep.
-\end{itemize}
-So the improvement was obtained with a \textbf{single checkpoint}, not by merging multiple models.
-
-\section{What helped and what did not}
-\begin{table}[H]
-\centering
-\caption{Summary of practical findings from our run log}
-\begin{tabular}{p{0.42\linewidth}p{0.46\linewidth}}
-\toprule
-Helped (in our runs) & Did not consistently help (in our runs) \\
-\midrule
-Switch from PointMLP to PointNet shared MLP + max-pool & Overly aggressive or mismatched augmentation combinations \\
-Input T-Net 3x3 alignment (vs Basic) & Rotation-vote test-time augmentation on aligned data \\
-tuning (AdamW + cosine + clipping + smoothing) & Assuming full 64x64 feature T-Net is always better \\
-A bit of geometric augmentation & Singlechange gains are small and sensitive to the chosen seed \\
-Checkpoint ensembling for final accuracy boost & \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 
 \section{Conclusion}
-All questions in the statement were addressed with quantitative results and comparisons.
-The required architecture (PointNet with input T-Net 3x3) improves over PointNetBasic and is far above PointMLP.
-The proposed augmentation (RandomPointDropout) gives a small but measurable gain in controlled conditions.
-Additional experiments show that training recipe and evaluation strategy can further improve performance, with ensemble inference reaching 90\%+.
+At the end of the project, after combining the different improvements, we achieved a score of 90\% on the 40 class modelnet dataset. We found that a combination of data augmentations (scale shift, double dropout and normalization to the dataset). From the runs, we found that the full pointNet architecture with an additional 64x64 T net didn't really help with the performance. PointNet yielded a much better performance than PointMLP mainly due to the fact that PointNET explains the shape of the data better than a MLP that flattens it. Finally, while 90\% accuracy is an acceptable result in the dataset, more modifications (or a new architecture) need to be implemented to reach "production" ready performance where the model can be better trusted.
+
 
 \begin{thebibliography}{9}
 \bibitem{pointnet}
 C. R. Qi, H. Su, K. Mo, and L. J. Guibas,
 \textit{PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation},
-CVPR 2017.
+arXiv preprint arXiv:1612.00593, 2017,
+\url{https://arxiv.org/abs/1612.00593}.
 
-\bibitem{pointnet_pytorch}
-F. Xia, \textit{pointnet.pytorch} (reference implementation),
-\url{https://github.com/fxia22/pointnet.pytorch}.
-
-\bibitem{pointnet2_pytorch}
-Y. Xu et al., \textit{PointNet/PointNet++ PyTorch},
-\url{https://github.com/yanx27/Pointnet_Pointnet2_pytorch}.
-
-\bibitem{adamw}
-I. Loshchilov and F. Hutter,
-\textit{Decoupled Weight Decay Regularization} (AdamW), 2017,
-\url{https://arxiv.org/abs/1711.05101}.
 
 \bibitem{revisit_pointcloud}
-A. Goyal et al.,
+A. Goyal, H. Law, B. Liu, A. Newell, and J. Deng,
 \textit{Revisiting Point Cloud Shape Classification with a Simple and Effective Baseline},
-ICML 2021,
-\url{https://proceedings.mlr.press/v139/goyal21a.html}.
+arXiv preprint arXiv:2106.05304, 2021,
+\url{https://arxiv.org/abs/2106.05304}.
 
-\bibitem{dropout}
-N. Srivastava, G. Hinton, A. Krizhevsky, I. Sutskever, and R. Salakhutdinov,
-\textit{Dropout: A Simple Way to Prevent Neural Networks from Overfitting},
-JMLR 2014.
+\bibitem{pointnet_pytorch}
+X. Yan,
+\textit{Pointnet/Pointnet++ Pytorch},
+\url{https://github.com/yanx27/Pointnet_Pointnet2_pytorch}, 2019.
+
 \end{thebibliography}
 
 \end{document}

@@ -4,12 +4,8 @@ import json
 import math
 import os
 import random
-import glob
 from datetime import datetime
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -151,13 +147,6 @@ def build_test_transform(cfg):
     return transforms.Compose(ops)
 
 
-def rotate_z_tensor(points_bxn3, angle):
-    c = math.cos(angle)
-    s = math.sin(angle)
-    rot = points_bxn3.new_tensor([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-    return torch.matmul(points_bxn3, rot.t())
-
-
 def smoothed_nll_loss(log_probs, labels, smoothing=0.0):
     if smoothing <= 0.0:
         return F.nll_loss(log_probs, labels)
@@ -220,7 +209,7 @@ def make_optimizer_and_scheduler(model, cfg, epochs):
     return optimizer, scheduler
 
 
-def evaluate(model, loader, device, vote_count=1, vote_mode='none', use_amp=True):
+def evaluate(model, loader, device, use_amp=True):
     model.eval()
     nll_sum = 0.0
     total = 0
@@ -232,35 +221,11 @@ def evaluate(model, loader, device, vote_count=1, vote_mode='none', use_amp=True
         for batch in loader:
             x = batch['pointcloud'].to(device, non_blocking=True).float()  # [B,N,3]
             y = batch['category'].to(device, non_blocking=True)
-
-            if vote_count <= 1:
-                with torch.amp.autocast('cuda', enabled=(use_amp and device.type == 'cuda')):
-                    out = model(x.transpose(1, 2))
-                    logits = out[0] if isinstance(out, tuple) else out
-                loss = F.nll_loss(logits, y, reduction='sum')
-                pred = logits.argmax(dim=1)
-            else:
-                probs_accum = None
-                for v in range(vote_count):
-                    xv = x
-                    if vote_mode in ('rotate', 'rotate_resample'):
-                        angle = (2.0 * math.pi * v) / float(vote_count)
-                        xv = rotate_z_tensor(xv, angle)
-                    if vote_mode == 'rotate_resample':
-                        # Resample point order to vary max-pool winner paths.
-                        idx = torch.randperm(xv.size(1), device=xv.device)
-                        xv = xv[:, idx, :]
-
-                    with torch.amp.autocast('cuda', enabled=(use_amp and device.type == 'cuda')):
-                        out = model(xv.transpose(1, 2))
-                        logits = out[0] if isinstance(out, tuple) else out
-                        probs = torch.exp(logits)
-                    probs_accum = probs if probs_accum is None else (probs_accum + probs)
-
-                probs_mean = probs_accum / float(vote_count)
-                logits = torch.log(torch.clamp(probs_mean, min=1e-9))
-                loss = F.nll_loss(logits, y, reduction='sum')
-                pred = logits.argmax(dim=1)
+            with torch.amp.autocast('cuda', enabled=(use_amp and device.type == 'cuda')):
+                out = model(x.transpose(1, 2))
+                logits = out[0] if isinstance(out, tuple) else out
+            loss = F.nll_loss(logits, y, reduction='sum')
+            pred = logits.argmax(dim=1)
 
             nll_sum += float(loss.item())
             correct += int((pred == y).sum().item())
@@ -282,31 +247,6 @@ def evaluate(model, loader, device, vote_count=1, vote_mode='none', use_amp=True
     return result
 
 
-def confusion_matrix(y_true, y_pred, num_classes):
-    cm = np.zeros((num_classes, num_classes), dtype=np.int64)
-    for t, p in zip(y_true, y_pred):
-        cm[int(t), int(p)] += 1
-    return cm
-
-
-def plot_confusion(cm_norm, class_names, save_path, title):
-    fig, ax = plt.subplots(figsize=(12, 10))
-    im = ax.imshow(cm_norm, cmap='Blues', vmin=0.0, vmax=1.0)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Row-normalized')
-    ax.set_title(title)
-    ax.set_xlabel('Predicted')
-    ax.set_ylabel('True')
-
-    ticks = np.arange(len(class_names))
-    ax.set_xticks(ticks[::2])
-    ax.set_yticks(ticks[::2])
-    ax.set_xticklabels([class_names[i] for i in ticks[::2]], rotation=90, fontsize=7)
-    ax.set_yticklabels([class_names[i] for i in ticks[::2]], fontsize=7)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=170, bbox_inches='tight')
-    plt.close(fig)
-
-
 def train_one_run(run_cfg, common_cfg, data_root, out_dir):
     seed = int(common_cfg.get('seed', 42)) + int(run_cfg.get('seed_offset', 0))
     set_seed(seed)
@@ -319,8 +259,6 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
 
     train_ds = PointCloudData(data_root, folder='train', transform=train_tf)
     test_ds = PointCloudData(data_root, folder='test', transform=test_tf)
-    inv_classes = {i: cat for cat, i in train_ds.classes.items()}
-    class_names = [inv_classes[i] for i in range(len(inv_classes))]
 
     loader_kwargs = {
         'num_workers': int(common_cfg.get('num_workers', 12)),
@@ -358,19 +296,16 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
     best_epoch = 0
     best_state = None
     epochs_no_improve = 0
+    best_test_acc = -1.0
 
     history = {
         'train_loss': [],
         'train_acc': [],
         'test_loss': [],
         'test_acc': [],
-        'lr': [],
     }
 
     t0 = datetime.now()
-    print(f"\\n=== RUN {run_cfg['id']} :: {run_cfg['name']} ===")
-    print(f"Device={device}, epochs={epochs}, patience={patience}, amp={use_amp}")
-
     for epoch in range(epochs):
         model.train()
         train_loss_sum = 0.0
@@ -425,8 +360,6 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
             model,
             test_loader,
             device,
-            vote_count=1,
-            vote_mode='none',
             use_amp=use_amp,
         )
 
@@ -437,10 +370,10 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
         history['train_acc'].append(train_acc)
         history['test_loss'].append(avg_test_loss)
         history['test_acc'].append(test_acc)
-        history['lr'].append(float(optimizer.param_groups[0]['lr']))
 
-        improved = avg_test_loss < (best_test_loss - min_delta)
+        improved = test_acc > (best_test_acc + min_delta)
         if improved:
+            best_test_acc = test_acc
             best_test_loss = avg_test_loss
             best_epoch = epoch + 1
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -449,11 +382,12 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
             epochs_no_improve += 1
 
         print(
-            f"Epoch {epoch+1:03d}/{epochs} | "
-            f"train_loss={avg_train_loss:.4f} train_acc={train_acc:.2f}% | "
-            f"test_loss={avg_test_loss:.4f} test_acc={test_acc:.2f}% | "
-            f"best_loss={best_test_loss:.4f}@{best_epoch} | "
-            f"patience={epochs_no_improve}/{patience}"
+            'Epoch: %d, Train Loss: %.3f, Train Acc: %.1f %%, Test Loss: %.3f, Test Acc: %.1f %%'
+            % (epoch + 1, avg_train_loss, train_acc, avg_test_loss, test_acc)
+        )
+        print(
+            'Best Test Acc: %.1f %% (epoch %d), EarlyStop patience: %d/%d'
+            % (best_test_acc, best_epoch, epochs_no_improve, patience)
         )
 
         scheduler.step()
@@ -465,63 +399,14 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    strict_train = evaluate(model, train_loader, device, vote_count=1, vote_mode='none', use_amp=use_amp)
-    strict_test = evaluate(model, test_loader, device, vote_count=1, vote_mode='none', use_amp=use_amp)
-
-    vote_cfg = run_cfg.get('vote_eval', {'vote_count': 1, 'vote_mode': 'none'})
-    vote_test = evaluate(
-        model,
-        test_loader,
-        device,
-        vote_count=int(vote_cfg.get('vote_count', 1)),
-        vote_mode=str(vote_cfg.get('vote_mode', 'none')),
-        use_amp=use_amp,
-    )
+    strict_train = evaluate(model, train_loader, device, use_amp=use_amp)
+    strict_test = evaluate(model, test_loader, device, use_amp=use_amp)
 
     os.makedirs(out_dir, exist_ok=True)
     model_path = get_unique_path(os.path.join(out_dir, f"{run_cfg['id']}_pointnetfull.pth"))
-    curves_path = get_unique_path(os.path.join(out_dir, f"{run_cfg['id']}_training_curves.png"))
     json_path = get_unique_path(os.path.join(out_dir, f"{run_cfg['id']}_summary.json"))
-    details_path = get_unique_path(os.path.join(out_dir, f"{run_cfg['id']}_details.json"))
-    confusion_path = get_unique_path(os.path.join(out_dir, f"{run_cfg['id']}_confusion_test.png"))
 
     torch.save(model.state_dict(), model_path)
-    plot_training_history(history, curves_path, title_suffix=f" ({run_cfg['id']})")
-
-    cm = confusion_matrix(strict_test['true'], strict_test['pred'], len(class_names))
-    cm_norm = cm / np.maximum(cm.sum(axis=1, keepdims=True), 1)
-    plot_confusion(cm_norm, class_names, confusion_path, f"PointNetFull Test Confusion ({run_cfg['id']})")
-
-    details = {
-        'run_id': run_cfg['id'],
-        'run_name': run_cfg['name'],
-        'class_names': class_names,
-        'history': history,
-        'strict_train': {
-            'loss': float(strict_train['loss']),
-            'acc': float(strict_train['acc']),
-            'n': int(strict_train['n']),
-        },
-        'strict_test': {
-            'loss': float(strict_test['loss']),
-            'acc': float(strict_test['acc']),
-            'n': int(strict_test['n']),
-        },
-        'vote_test': {
-            'loss': float(vote_test['loss']),
-            'acc': float(vote_test['acc']),
-            'n': int(vote_test['n']),
-            'vote_count': int(vote_cfg.get('vote_count', 1)),
-            'vote_mode': str(vote_cfg.get('vote_mode', 'none')),
-        },
-        'confusion': {
-            'raw': cm.tolist(),
-            'normalized': cm_norm.tolist(),
-            'per_class_acc_percent': (np.diag(cm_norm) * 100.0).tolist(),
-        },
-    }
-    with open(details_path, 'w') as f:
-        json.dump(details, f, indent=2)
 
     elapsed = (datetime.now() - t0).total_seconds()
     result = {
@@ -531,23 +416,16 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
         'device': str(device),
         'epochs_max': epochs,
         'epochs_ran': len(history['train_loss']),
-        'best_epoch_by_loss': int(best_epoch),
+        'best_epoch_by_acc': int(best_epoch),
         'best_test_loss': float(best_test_loss),
         'strict_train_loss': float(strict_train['loss']),
         'strict_train_acc': float(strict_train['acc']),
         'strict_test_loss': float(strict_test['loss']),
         'strict_test_acc': float(strict_test['acc']),
-        'vote_test_loss': float(vote_test['loss']),
-        'vote_test_acc': float(vote_test['acc']),
-        'vote_count': int(vote_cfg.get('vote_count', 1)),
-        'vote_mode': str(vote_cfg.get('vote_mode', 'none')),
         'config': run_cfg,
         'paths': {
             'model': model_path,
-            'curves': curves_path,
             'summary': json_path,
-            'details': details_path,
-            'confusion_test': confusion_path,
         },
         'elapsed_seconds': elapsed,
     }
@@ -558,596 +436,12 @@ def train_one_run(run_cfg, common_cfg, data_root, out_dir):
     return result
 
 
-def plot_training_history(history, save_path, title_suffix=''):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    epochs = range(1, len(history['train_loss']) + 1)
-
-    ax1.plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
-    ax1.plot(epochs, history['test_loss'], 'r-', label='Test Loss', linewidth=2)
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Loss')
-    ax1.set_title(f'Loss over Training{title_suffix}')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-
-    ax2.plot(epochs, history['train_acc'], 'b-', label='Train Accuracy', linewidth=2)
-    ax2.plot(epochs, history['test_acc'], 'r-', label='Test Accuracy', linewidth=2)
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Accuracy (%)')
-    ax2.set_title(f'Accuracy over Training{title_suffix}')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=160, bbox_inches='tight')
-    plt.close(fig)
-
-
-def ensure_log_header(log_path):
-    if os.path.exists(log_path):
-        return
-
-    header = """# PointNetFull Outside-Architecture Optimization Log
-
-Purpose: keep `PointNetFull` architecture fixed and test minimal training/augmentation changes to reach >=90% test accuracy.
-
-## Fixed architecture
-
-- Input T-Net (3x3) + feature T-Net (64x64)
-- Shared MLP: 3->64->64->64->128->1024
-- Global max-pool + classifier 1024->512->256->40
-- Dropout p=0.3, LogSoftmax output
-
-## References used for these changes
-
-- PointNet PyTorch repo reports ModelNet40 reference figures and `feature_transform` option: https://github.com/fxia22/pointnet.pytorch
-- Official PointNet/PointNet++ style augmentation utilities (normalize, jitter, shift/scale, random point dropout): https://github.com/yanx27/Pointnet_Pointnet2_pytorch
-- PointNet++ evaluation with optional voting (`--num_votes`): https://github.com/charlesq34/pointnet2
-- AdamW (decoupled weight decay): https://arxiv.org/abs/1711.05101
-- CosineAnnealingLR (SGDR-based): https://docs.pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.CosineAnnealingLR.html
-- Label smoothing API/definition: https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-- Evidence that non-architecture factors can strongly affect point-cloud results: https://proceedings.mlr.press/v139/goyal21a.html
-
----
-"""
-    with open(log_path, 'w') as f:
-        f.write(header)
-
-
-def append_run_to_log(log_path, result, prev_result=None):
-    cfg = result['config']
-    aug = cfg['augment']
-    opt = cfg['optim']
-
-    lines = []
-    lines.append(f"## {result['run_id']} - {result['run_name']}")
-    lines.append('')
-    lines.append(f"- Time: `{result['timestamp']}`")
-    lines.append(f"- Device: `{result['device']}`")
-    lines.append(f"- Epochs: ran `{result['epochs_ran']}` / max `{result['epochs_max']}`, best-loss epoch `{result['best_epoch_by_loss']}`")
-    lines.append("- Changes vs fixed architecture:")
-    lines.append(f"  - Augmentation: `{json.dumps(aug, sort_keys=True)}`")
-    lines.append(f"  - Optimization: `{json.dumps(opt, sort_keys=True)}`")
-    lines.append(f"  - Vote eval: `count={result['vote_count']}, mode={result['vote_mode']}`")
-    lines.append('')
-    lines.append('| Metric | Value |')
-    lines.append('|---|---:|')
-    lines.append(f"| Strict Test Acc (%) | {result['strict_test_acc']:.2f} |")
-    lines.append(f"| Strict Test NLL | {result['strict_test_loss']:.4f} |")
-    lines.append(f"| Voted Test Acc (%) | {result['vote_test_acc']:.2f} |")
-    lines.append(f"| Voted Test NLL | {result['vote_test_loss']:.4f} |")
-    lines.append(f"| Train Acc (%) | {result['strict_train_acc']:.2f} |")
-    lines.append(f"| Train NLL | {result['strict_train_loss']:.4f} |")
-    lines.append('')
-
-    if prev_result is not None:
-        d_strict = result['strict_test_acc'] - prev_result['strict_test_acc']
-        d_vote = result['vote_test_acc'] - prev_result['vote_test_acc']
-        lines.append(f"- Delta vs previous run (strict acc): `{d_strict:+.2f}` points")
-        lines.append(f"- Delta vs previous run (voted acc): `{d_vote:+.2f}` points")
-    else:
-        lines.append('- Delta vs previous run: N/A (first run)')
-
-    lines.append(f"- Curves: `{result['paths']['curves']}`")
-    lines.append(f"- Confusion (test): `{result['paths']['confusion_test']}`")
-    lines.append(f"- Model: `{result['paths']['model']}`")
-    lines.append(f"- JSON: `{result['paths']['summary']}`")
-    lines.append(f"- Details: `{result['paths']['details']}`")
-    lines.append('')
-    lines.append('---')
-    lines.append('')
-
-    with open(log_path, 'a') as f:
-        f.write('\n'.join(lines))
-
-
-def get_previous_result_from_summaries(out_dir, exclude_summary_path):
-    summary_files = sorted(
-        glob.glob(os.path.join(out_dir, '*_summary.json')),
-        key=os.path.getmtime
-    )
-    summary_files = [p for p in summary_files if os.path.abspath(p) != os.path.abspath(exclude_summary_path)]
-    if not summary_files:
-        return None
-    with open(summary_files[-1], 'r') as f:
-        return json.load(f)
-
-
-def load_default_runs():
-    # Minimal-delta ablation chain.
-    return [
-        {
-            'id': 'r00_baseline120',
-            'name': 'Baseline recipe (StepLR+Adam, simple aug)',
-            'seed_offset': 0,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'scale_translate': False,
-                'jitter': False,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adam',
-                'lr': 1e-3,
-                'scheduler': 'step',
-                'step_size': 20,
-                'gamma': 0.5,
-                'label_smoothing': 0.0,
-                'grad_clip': None,
-                'treg_alpha': 0.001,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r01_norm_sample',
-            'name': 'Add normalize + random sample (same optimizer)',
-            'seed_offset': 1,
-            'augment': {
-                'normalize': True,
-                'random_sample': True,
-                'scale_translate': False,
-                'jitter': False,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adam',
-                'lr': 1e-3,
-                'scheduler': 'step',
-                'step_size': 20,
-                'gamma': 0.5,
-                'label_smoothing': 0.0,
-                'grad_clip': None,
-                'treg_alpha': 0.001,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r02_aug_only',
-            'name': 'Add scale/translate/jitter/dropout (still Adam+StepLR)',
-            'seed_offset': 2,
-            'augment': {
-                'normalize': True,
-                'random_sample': True,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adam',
-                'lr': 1e-3,
-                'scheduler': 'step',
-                'step_size': 20,
-                'gamma': 0.5,
-                'label_smoothing': 0.0,
-                'grad_clip': None,
-                'treg_alpha': 0.001,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r03_opt_only',
-            'name': 'Optimizer/scheduler/loss tune (AdamW+Cosine+LS+clip)',
-            'seed_offset': 3,
-            'augment': {
-                'normalize': True,
-                'random_sample': True,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r04_opt_plus_vote12',
-            'name': 'Same as r03 + test-time voting (12 rotations)',
-            'seed_offset': 4,
-            'augment': {
-                'normalize': True,
-                'random_sample': True,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-            },
-            'vote_eval': {'vote_count': 12, 'vote_mode': 'rotate'},
-        },
-        {
-            'id': 'r05_nonorm_aug_opt',
-            'name': 'No normalize/sample + strong aug + AdamW/Cosine/LS/clip',
-            'seed_offset': 5,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-            },
-            'vote_eval': {'vote_count': 12, 'vote_mode': 'rotate'},
-        },
-        {
-            'id': 'r06_nonorm_aug_opt_lowreg',
-            'name': 'r05 with lower T-Net regularization alpha=5e-4',
-            'seed_offset': 6,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 5e-4,
-            },
-            'vote_eval': {'vote_count': 12, 'vote_mode': 'rotate'},
-        },
-        {
-            'id': 'r07_nonorm_aug_opt_featreg_only',
-            'name': 'r05 with regularization on 64x64 only (no 3x3 reg)',
-            'seed_offset': 7,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 12, 'vote_mode': 'rotate'},
-        },
-        {
-            'id': 'r08_nonorm_aug_opt_featreg_only_seed8',
-            'name': 'r07 recipe, different seed (offset 8)',
-            'seed_offset': 8,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 12, 'vote_mode': 'rotate'},
-        },
-        {
-            'id': 'r09_nonorm_aug_opt_featreg_only_seed9',
-            'name': 'r07 recipe, different seed (offset 9)',
-            'seed_offset': 9,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': True,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 12, 'vote_mode': 'rotate'},
-        },
-        {
-            'id': 'r10_no_rot_aug_opt_featreg_seed10',
-            'name': 'r07 recipe, disable train-time Z-rotation (offset 10)',
-            'seed_offset': 10,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r11_no_rot_aug_opt_featreg_seed11',
-            'name': 'r10 recipe, different seed (offset 11)',
-            'seed_offset': 11,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r12_no_rot_no_ls_seed12',
-            'name': 'r10 recipe, label smoothing off (offset 12)',
-            'seed_offset': 12,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.0,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r13_no_rot_no_ls_no_dropout_seed13',
-            'name': 'r12 recipe, no point dropout (offset 13)',
-            'seed_offset': 13,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.0,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r14_no_rot_ls_no_dropout_seed14',
-            'name': 'r10 recipe, no point dropout (offset 14)',
-            'seed_offset': 14,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r15_no_rot_ls_no_dropout_seed15',
-            'name': 'r14 recipe, different seed (offset 15)',
-            'seed_offset': 15,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r16_first_tnet_only_r14_recipe_seed14',
-            'name': 'first-TNet-only architecture, same outside recipe as r14 (seed offset 14)',
-            'seed_offset': 14,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': False,
-                'scale_translate': True,
-                'jitter': True,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adamw',
-                'lr': 1e-3,
-                'weight_decay': 1e-4,
-                'scheduler': 'cosine',
-                'eta_min': 1e-5,
-                'label_smoothing': 0.1,
-                'grad_clip': 1.0,
-                'treg_alpha': 0.001,
-                'reg_input': False,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r17_first_tnet_only_baseline_recipe_seed0',
-            'name': 'first-TNet-only architecture, baseline recipe (seed offset 0)',
-            'seed_offset': 0,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': True,
-                'scale_translate': False,
-                'jitter': False,
-                'point_dropout': False,
-            },
-            'optim': {
-                'optimizer': 'adam',
-                'lr': 1e-3,
-                'scheduler': 'step',
-                'step_size': 20,
-                'gamma': 0.5,
-                'label_smoothing': 0.0,
-                'grad_clip': None,
-                'treg_alpha': 0.001,
-                'reg_input': True,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-        {
-            'id': 'r18_first_tnet_only_baseline_plus_point_dropout_seed0',
-            'name': 'first-TNet-only baseline + RandomPointDropout only (seed offset 0)',
-            'seed_offset': 0,
-            'augment': {
-                'normalize': False,
-                'random_sample': False,
-                'rotate_z': True,
-                'scale_translate': False,
-                'jitter': False,
-                'point_dropout': True,
-            },
-            'optim': {
-                'optimizer': 'adam',
-                'lr': 1e-3,
-                'scheduler': 'step',
-                'step_size': 20,
-                'gamma': 0.5,
-                'label_smoothing': 0.0,
-                'grad_clip': None,
-                'treg_alpha': 0.001,
-                'reg_input': True,
-                'reg_feature': True,
-            },
-            'vote_eval': {'vote_count': 1, 'vote_mode': 'none'},
-        },
-    ]
+def load_runs_config(config_path):
+    with open(config_path, 'r') as f:
+        runs = json.load(f)
+    if not isinstance(runs, list):
+        raise ValueError(f"Runs config must be a list: {config_path}")
+    return runs
 
 
 def main():
@@ -1159,15 +453,14 @@ def main():
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--num-workers', type=int, default=12)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--runs-config', type=str, default='',
+                        help='Path to runs config JSON. Defaults to Code/ex2_full_optimization_runs_config.json')
     parser.add_argument('--no-amp', action='store_true')
     args = parser.parse_args()
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     data_root = os.path.join(root, 'data', 'ModelNet40_PLY')
     out_dir = os.path.join(root, 'figures', 'full_pointnet_runs')
-    log_path = os.path.join(root, 'full_pointnet_optimization_log.md')
-
-    ensure_log_header(log_path)
 
     common_cfg = {
         'epochs': int(args.epochs),
@@ -1180,7 +473,9 @@ def main():
         'use_amp': (not args.no_amp),
     }
 
-    runs = load_default_runs()
+    default_runs_config = os.path.join(os.path.dirname(__file__), 'ex2_full_optimization_runs_config.json')
+    runs_config_path = args.runs_config.strip() if args.runs_config.strip() else default_runs_config
+    runs = load_runs_config(runs_config_path)
     if args.run_ids.strip().lower() != 'all':
         wanted = {x.strip() for x in args.run_ids.split(',') if x.strip()}
         runs = [r for r in runs if r['id'] in wanted]
@@ -1188,32 +483,17 @@ def main():
         if missing:
             raise ValueError(f"Unknown run ids: {sorted(missing)}")
 
-    prev = None
     all_results = []
 
     for r in runs:
         result = train_one_run(r, common_cfg, data_root, out_dir)
-        prev_for_log = prev
-        if prev_for_log is None:
-            prev_for_log = get_previous_result_from_summaries(out_dir, result['paths']['summary'])
-        append_run_to_log(log_path, result, prev_result=prev_for_log)
         all_results.append(result)
-        prev = result
-
-        print(
-            f"[RESULT] {result['run_id']} strict_test_acc={result['strict_test_acc']:.2f}% "
-            f"vote_test_acc={result['vote_test_acc']:.2f}%"
-        )
-        if result['strict_test_acc'] >= 90.0 or result['vote_test_acc'] >= 90.0:
-            print(f"Target reached (>=90%) at run {result['run_id']}")
+        if result['strict_test_acc'] >= 90.0:
             break
 
     summary_path = os.path.join(root, 'full_pointnet_optimization_runs_latest.json')
     with open(summary_path, 'w') as f:
         json.dump({'common_cfg': common_cfg, 'results': all_results}, f, indent=2)
-
-    print(f"Saved cumulative run summary: {summary_path}")
-    print(f"Updated markdown log: {log_path}")
 
 
 if __name__ == '__main__':
